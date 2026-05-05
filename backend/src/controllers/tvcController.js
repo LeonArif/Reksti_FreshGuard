@@ -6,7 +6,6 @@ const tvcSchema = z.object({
   mq_136: z.number(),
   temperature: z.number(),
   humidity: z.number(),
-  minutes: z.number(),
   tvc: z.number(),
   rsl_minutes: z.number(),
   class: z.number().int().min(0).max(2),
@@ -39,12 +38,11 @@ export const createTvcSample = async (req, res) => {
   const { data, error } = await supabase
     .from("tvc_samples")
     .insert(parseResult.data)
-    .select("*")
-    .single();
+    .select("*");
 
   if (error) {
     return res.status(500).json({ error: error.message });
   }
 
-  return res.status(201).json({ data });
+  return res.status(201).json({ data: data?.[0] ?? null });
 };

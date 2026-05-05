@@ -7,9 +7,8 @@ create table if not exists public.kondisi_makanan (
   h2s numeric,
   voc numeric,
   amonia numeric,
-  minutes numeric,
   tvc numeric not null,
   rsl_minutes numeric not null,
-  class smallint not null check (class in (1, 2, 3)),
+  class smallint not null check (class in (0, 1, 2)),
   created_at timestamptz not null default now()
 );

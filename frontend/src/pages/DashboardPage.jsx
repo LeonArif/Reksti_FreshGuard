@@ -14,6 +14,13 @@ const formatNumber = (value, digits = 2) => {
   return Number(value).toFixed(digits);
 };
 
+const formatPercent = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "-";
+  }
+  return `${(Number(value) * 100).toFixed(2)}%`;
+};
+
 function DashboardPage() {
   const [foodRecord, setFoodRecord] = useState(null);
   const [manualInput, setManualInput] = useState(null);
@@ -64,8 +71,7 @@ function DashboardPage() {
           humidity: toNumberOrNull(values.humidity),
           h2s: toNumberOrNull(values.h2s),
           voc: toNumberOrNull(values.voc),
-          amonia: toNumberOrNull(values.amonia),
-          minutes: toNumberOrNull(values.minutes)
+            amonia: toNumberOrNull(values.amonia)
         })
       });
 
@@ -81,8 +87,10 @@ function DashboardPage() {
     }
   };
 
-  const classId = foodRecord?.class ?? null;
-  const freshnessLabel = classId === 1 ? "Safe" : classId === 2 ? "Warning" : classId === 3 ? "Danger" : "-";
+  const classId = Number(foodRecord?.class ?? Number.NaN);
+  const freshnessLabel = foodRecord?.class_name ?? (classId === 0 ? "Safe" : classId === 1 ? "Warning" : classId === 2 ? "Danger" : "-");
+  const classProbabilities = foodRecord?.class_probabilities ?? null;
+  const dangerProbabilities = classProbabilities && freshnessLabel === "Danger";
 
   const statusTone = useMemo(() => {
     if (freshnessLabel === "Danger") return "bg-rose-50";
@@ -109,11 +117,11 @@ function DashboardPage() {
                 <p className="mt-2 text-sm text-[var(--text-strong)]">Main storage unit</p>
                 <h2 className="mt-4 text-4xl font-semibold text-[var(--accent-strong)]">{freshnessLabel}</h2>
                 <p className="mt-4 text-sm text-[var(--muted)]">
-                  Kualitas makanan berdasarkan pembacaan sensor dan prediksi TVC terbaru.
+                  Kualitas makanan berdasarkan pembacaan sensor dan prediksi class terbaru.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-6">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">TVC</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Class</p>
                     <p className="text-xl font-semibold text-[var(--text-strong)]">
                       {formatNumber(foodRecord?.tvc)}
                     </p>
@@ -166,13 +174,14 @@ function DashboardPage() {
 
             <div className="grid gap-6 md:grid-cols-2">
               <MetricCard
-                title="Minutes"
-                value={formatNumber(foodRecord?.minutes, 0)}
-                unit="min"
+                title="MQ-135"
+                value={formatNumber(foodRecord?.mq_135)}
+                unit="ppm"
               />
               <MetricCard
-                title="Class"
-                value={freshnessLabel}
+                title="MQ-136"
+                value={formatNumber(foodRecord?.mq_136)}
+                unit="ppm"
               />
             </div>
 
@@ -193,7 +202,6 @@ function DashboardPage() {
                 <span>H2S: {manualInput.h2s || "-"}</span>
                 <span>VOC: {manualInput.voc || "-"}</span>
                 <span>Amonia: {manualInput.amonia || "-"}</span>
-                <span>Minutes: {manualInput.minutes || "-"}</span>
               </div>
             </div>
           ) : null}

@@ -16,8 +16,7 @@ const inputSchema = z.object({
   humidity: z.coerce.number(),
   h2s: optionalNumber,
   voc: optionalNumber,
-  amonia: optionalNumber,
-  minutes: optionalNumber
+  amonia: optionalNumber
 });
 
 const __filename = fileURLToPath(import.meta.url);
@@ -88,10 +87,13 @@ export const runManualPrediction = async (req, res) => {
       h2s: input.h2s ?? null,
       voc: input.voc ?? null,
       amonia: input.amonia ?? null,
-      minutes: input.minutes ?? null,
-      tvc: result.data.tvc,
+      tvc: result.data.tvc ?? result.data.class,
       rsl_minutes: result.data.rsl_minutes,
       class: result.data.class
+    };
+    const dbRecord = {
+      ...record,
+      class: record.class + 1
     };
 
     let query = supabase.from("kondisi_makanan").select("*");
@@ -109,7 +111,6 @@ export const runManualPrediction = async (req, res) => {
     query = applyFilter(query, "h2s", record.h2s);
     query = applyFilter(query, "voc", record.voc);
     query = applyFilter(query, "amonia", record.amonia);
-    query = applyFilter(query, "minutes", record.minutes);
 
     const { data: existing, error: existingError } = await query.limit(1).maybeSingle();
     if (existingError) {
@@ -122,7 +123,7 @@ export const runManualPrediction = async (req, res) => {
         .update({
           tvc: record.tvc,
           rsl_minutes: record.rsl_minutes,
-          class: record.class
+          class: dbRecord.class
         })
         .eq("id", existing.id)
         .select("*")
@@ -132,12 +133,18 @@ export const runManualPrediction = async (req, res) => {
         return res.status(500).json({ error: error.message });
       }
 
-      return res.json({ data });
+      return res.json({
+        data: {
+          ...data,
+          class_name: result.data.class_name,
+          class_probabilities: result.data.class_probabilities
+        }
+      });
     }
 
     const { data, error } = await supabase
       .from("kondisi_makanan")
-      .insert(record)
+      .insert(dbRecord)
       .select("*")
       .single();
 
@@ -145,7 +152,13 @@ export const runManualPrediction = async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    return res.json({ data });
+    return res.json({
+      data: {
+        ...data,
+        class_name: result.data.class_name,
+        class_probabilities: result.data.class_probabilities
+      }
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

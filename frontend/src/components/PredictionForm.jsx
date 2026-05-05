@@ -8,8 +8,7 @@ const emptyValues = {
   humidity: "",
   h2s: "",
   voc: "",
-  amonia: "",
-  minutes: ""
+  amonia: ""
 };
 
 function PredictionForm({ onSubmit, isLoading, errorMessage }) {
@@ -122,18 +121,6 @@ function PredictionForm({ onSubmit, isLoading, errorMessage }) {
             type="number"
             step="any"
             placeholder="0.08"
-            className="rounded-2xl border border-transparent bg-[var(--surface)] px-4 py-3 text-sm font-normal text-[var(--text-strong)] shadow-inner"
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
-          Minutes
-          <input
-            name="minutes"
-            value={values.minutes}
-            onChange={handleChange}
-            type="number"
-            step="any"
-            placeholder="120"
             className="rounded-2xl border border-transparent bg-[var(--surface)] px-4 py-3 text-sm font-normal text-[var(--text-strong)] shadow-inner"
           />
         </label>

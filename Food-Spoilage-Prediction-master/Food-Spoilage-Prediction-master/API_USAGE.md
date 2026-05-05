@@ -35,7 +35,7 @@ predict_food_spoilage(mq135: float, mq136: float, temperature: float, humidity: 
 | `rsl_minutes` | float | Remaining Shelf Life in minutes (0-625) |
 | `class` | int | Class index (0=Safe, 1=Warning, 2=Danger) |
 | `class_name` | str | Human-readable class name |
-| `class_probabilities` | dict | Confidence scores for each class |
+| `class_probabilities` | dict | Confidence scores for each class, keyed by `Safe`, `Warning`, and `Danger` |
 
 ---
 

@@ -1,5 +1,16 @@
 import { supabase } from "../db/supabaseClient.js";
 
+const normalizeFoodRecord = (record) => {
+  if (!record) {
+    return record;
+  }
+
+  return {
+    ...record,
+    class: record.class === null || record.class === undefined ? record.class : Number(record.class) - 1
+  };
+};
+
 export const listFoodRecords = async (req, res) => {
   const limit = Number(req.query.limit ?? 50);
   const { data, error } = await supabase
@@ -12,5 +23,5 @@ export const listFoodRecords = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
-  return res.json({ data });
+  return res.json({ data: Array.isArray(data) ? data.map(normalizeFoodRecord) : data });
 };
