@@ -15,10 +15,8 @@ const formatNumber = (value, digits = 2) => {
 };
 
 function DashboardPage() {
-  const [tvcSample, setTvcSample] = useState(null);
-  const [predictSample, setPredictSample] = useState(null);
+  const [foodRecord, setFoodRecord] = useState(null);
   const [manualInput, setManualInput] = useState(null);
-  const [manualResult, setManualResult] = useState(null);
   const [manualLoading, setManualLoading] = useState(false);
   const [manualError, setManualError] = useState("");
   const [userEmail, setUserEmail] = useState("");
@@ -26,13 +24,9 @@ function DashboardPage() {
   useEffect(() => {
     const loadSamples = async () => {
       try {
-        const tvcResponse = await fetch(`${apiBase}/api/tvc?limit=1`);
-        const tvcJson = await tvcResponse.json();
-        setTvcSample(tvcJson?.data?.[0] ?? null);
-
-        const predictResponse = await fetch(`${apiBase}/api/predict?limit=1`);
-        const predictJson = await predictResponse.json();
-        setPredictSample(predictJson?.data?.[0] ?? null);
+        const response = await fetch(`${apiBase}/api/food?limit=1`);
+        const json = await response.json();
+        setFoodRecord(json?.data?.[0] ?? null);
       } catch (error) {
         console.error("Failed to load samples", error);
       }
@@ -55,19 +49,23 @@ function DashboardPage() {
     setManualInput(values);
     setManualLoading(true);
     setManualError("");
-    setManualResult(null);
 
     try {
-      const response = await fetch(`${apiBase}/api/predict/manual`, {
+      const toNumberOrNull = (value) => (value === "" || value === null || value === undefined ? null : Number(value));
+      const response = await fetch(`${apiBase}/api/food/manual`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          mq135: values.mq135,
-          mq136: values.mq136,
-          temperature: values.temperature,
-          humidity: values.humidity
+          mq135: toNumberOrNull(values.mq135),
+          mq136: toNumberOrNull(values.mq136),
+          temperature: toNumberOrNull(values.temperature),
+          humidity: toNumberOrNull(values.humidity),
+          h2s: toNumberOrNull(values.h2s),
+          voc: toNumberOrNull(values.voc),
+          amonia: toNumberOrNull(values.amonia),
+          minutes: toNumberOrNull(values.minutes)
         })
       });
 
@@ -75,7 +73,7 @@ function DashboardPage() {
       if (!response.ok) {
         throw new Error(json.error || "Prediction failed");
       }
-      setManualResult(json);
+      setFoodRecord(json.data ?? null);
     } catch (error) {
       setManualError(error.message);
     } finally {
@@ -83,7 +81,8 @@ function DashboardPage() {
     }
   };
 
-  const freshnessLabel = predictSample?.freshness_label ?? "-";
+  const classId = foodRecord?.class ?? null;
+  const freshnessLabel = classId === 1 ? "Safe" : classId === 2 ? "Warning" : classId === 3 ? "Danger" : "-";
 
   const statusTone = useMemo(() => {
     if (freshnessLabel === "Danger") return "bg-rose-50";
@@ -104,25 +103,27 @@ function DashboardPage() {
           />
 
           <div className="grid gap-6 lg:grid-cols-[1.6fr,1fr]">
-            <div className={`rounded-3xl p-6 shadow-soft ${statusTone}`}>
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Current food status</p>
-              <p className="mt-2 text-sm text-[var(--text-strong)]">Main storage unit</p>
-              <h2 className="mt-4 text-4xl font-semibold text-[var(--accent-strong)]">{freshnessLabel}</h2>
-              <p className="mt-4 text-sm text-[var(--muted)]">
-                Kualitas makanan berdasarkan pembacaan sensor dan prediksi TVC terbaru.
-              </p>
-              <div className="mt-6 flex flex-wrap items-center gap-6">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">TVC</p>
-                  <p className="text-xl font-semibold text-[var(--text-strong)]">
-                    {formatNumber(tvcSample?.tvc)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">RSL minutes</p>
-                  <p className="text-xl font-semibold text-[var(--text-strong)]">
-                    {formatNumber(predictSample?.rsl_minutes)}
-                  </p>
+            <div className="grid gap-6">
+              <div className={`rounded-3xl p-6 shadow-soft ${statusTone}`}>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Current food status</p>
+                <p className="mt-2 text-sm text-[var(--text-strong)]">Main storage unit</p>
+                <h2 className="mt-4 text-4xl font-semibold text-[var(--accent-strong)]">{freshnessLabel}</h2>
+                <p className="mt-4 text-sm text-[var(--muted)]">
+                  Kualitas makanan berdasarkan pembacaan sensor dan prediksi TVC terbaru.
+                </p>
+                <div className="mt-6 flex flex-wrap items-center gap-6">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">TVC</p>
+                    <p className="text-xl font-semibold text-[var(--text-strong)]">
+                      {formatNumber(foodRecord?.tvc)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">RSL minutes</p>
+                    <p className="text-xl font-semibold text-[var(--text-strong)]">
+                      {formatNumber(foodRecord?.rsl_minutes)}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -130,14 +131,14 @@ function DashboardPage() {
             <div className="grid gap-6">
               <MetricCard
                 title="Air quality"
-                value={formatNumber(tvcSample?.h2s)}
+                  value={formatNumber(foodRecord?.h2s)}
                 unit="H2S"
                 tone="bg-white/90"
                 subtitle="Latest H2S reading"
               />
               <MetricCard
                 title="VOC"
-                value={formatNumber(tvcSample?.voc)}
+                  value={formatNumber(foodRecord?.voc)}
                 unit="ppm"
                 tone="bg-white/90"
                 subtitle="Volatile organic compounds"
@@ -145,33 +146,35 @@ function DashboardPage() {
             </div>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-3">
             <MetricCard
               title="Amonia"
-              value={formatNumber(tvcSample?.amonia)}
+                value={formatNumber(foodRecord?.amonia)}
               unit="ppm"
             />
             <MetricCard
-              title="Prob Safe"
-              value={formatNumber(predictSample?.prob_safe, 3)}
+                title="Temperature"
+                value={formatNumber(foodRecord?.temperature)}
+                unit="C"
             />
             <MetricCard
-              title="Prob Warning"
-              value={formatNumber(predictSample?.prob_warning, 3)}
+                title="Humidity"
+                value={formatNumber(foodRecord?.humidity)}
+                unit="%"
             />
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <MetricCard
-              title="Prob Danger"
-              value={formatNumber(predictSample?.prob_danger, 3)}
-            />
-            <MetricCard
-              title="Temperature"
-              value={formatNumber(tvcSample?.temperature)}
-              unit="C"
-            />
-          </div>
+            <div className="grid gap-6 md:grid-cols-2">
+              <MetricCard
+                title="Minutes"
+                value={formatNumber(foodRecord?.minutes, 0)}
+                unit="min"
+              />
+              <MetricCard
+                title="Class"
+                value={freshnessLabel}
+              />
+            </div>
 
           <PredictionForm
             onSubmit={handleManualSubmit}
@@ -180,29 +183,17 @@ function DashboardPage() {
           />
 
           {manualInput ? (
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="rounded-3xl bg-white/80 p-6 text-sm text-[var(--muted)] shadow-soft">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Last input</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <span>MQ-135: {manualInput.mq135 || "-"}</span>
-                  <span>MQ-136: {manualInput.mq136 || "-"}</span>
-                  <span>Temperature: {manualInput.temperature || "-"}</span>
-                  <span>Humidity: {manualInput.humidity || "-"}</span>
-                </div>
-              </div>
-              <div className="rounded-3xl bg-white/80 p-6 text-sm text-[var(--muted)] shadow-soft">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Manual prediction</p>
-                {manualResult ? (
-                  <div className="mt-3 grid gap-2">
-                    <span>Class: {manualResult.class_name}</span>
-                    <span>RSL minutes: {formatNumber(manualResult.rsl_minutes)}</span>
-                    <span>Prob Safe: {formatNumber(manualResult.probabilities?.Safe, 3)}</span>
-                    <span>Prob Warning: {formatNumber(manualResult.probabilities?.Warning, 3)}</span>
-                    <span>Prob Danger: {formatNumber(manualResult.probabilities?.Danger, 3)}</span>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-xs text-[var(--muted)]">Belum ada hasil.</p>
-                )}
+            <div className="rounded-3xl bg-white/80 p-6 text-sm text-[var(--muted)] shadow-soft">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Last input</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <span>MQ-135: {manualInput.mq135 || "-"}</span>
+                <span>MQ-136: {manualInput.mq136 || "-"}</span>
+                <span>Temperature: {manualInput.temperature || "-"}</span>
+                <span>Humidity: {manualInput.humidity || "-"}</span>
+                <span>H2S: {manualInput.h2s || "-"}</span>
+                <span>VOC: {manualInput.voc || "-"}</span>
+                <span>Amonia: {manualInput.amonia || "-"}</span>
+                <span>Minutes: {manualInput.minutes || "-"}</span>
               </div>
             </div>
           ) : null}

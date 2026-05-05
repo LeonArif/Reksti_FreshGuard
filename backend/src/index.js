@@ -1,8 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import tvcRoutes from "./routes/tvcRoutes.js";
-import predictRoutes from "./routes/predictRoutes.js";
+import foodRoutes from "./routes/foodRoutes.js";
 import { supabase } from "./db/supabaseClient.js";
 
 dotenv.config();
@@ -18,15 +17,14 @@ app.use(cors({
 app.use(express.json());
 
 app.get("/health", async (_req, res) => {
-  const { error } = await supabase.from("tvc_samples").select("id", { head: true, count: "exact" });
+  const { error } = await supabase.from("kondisi_makanan").select("id", { head: true, count: "exact" });
   if (error) {
     return res.status(500).json({ ok: false, error: error.message });
   }
   return res.json({ ok: true });
 });
 
-app.use("/api/tvc", tvcRoutes);
-app.use("/api/predict", predictRoutes);
+app.use("/api/food", foodRoutes);
 
 app.listen(port, () => {
   // eslint-disable-next-line no-console
