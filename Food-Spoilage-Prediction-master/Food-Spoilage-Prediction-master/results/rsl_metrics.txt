@@ -1,0 +1,12 @@
+RSL REGRESSION MODEL (dengan class sebagai feature)
+Features: ['Mq-135', 'Mq-136', 'Temperature', 'Humidity'] + class (0/1/2)
+Train MAE: 0.7435
+Val MAE: 0.9991
+Test MAE: 1.0486
+Train RMSE: 2.1043
+Val RMSE: 3.9957
+Test RMSE: 3.8816
+Train R2: 0.9997
+Val R2: 0.9989
+Test R2: 0.9989
+Hyperparameters: {'objective': 'reg:squarederror', 'max_depth': 5, 'learning_rate': 0.1, 'n_estimators': 200, 'subsample': 0.8, 'colsample_bytree': 0.8, 'random_state': 42, 'verbosity': 1}

@@ -1,0 +1,24 @@
+CLASSIFICATION MODEL
+Train Accuracy: 0.9974
+Val Accuracy: 0.9928
+Test Accuracy: 0.9891
+Train F1 Macro: 0.9958
+Val F1 Macro: 0.9884
+Test F1 Macro: 0.9826
+Confusion Matrix:
+[[ 417    0    0]
+ [   1  329   14]
+ [   0   15 1983]]
+Classification Report:
+              precision    recall  f1-score   support
+
+        Safe       1.00      1.00      1.00       417
+     Warning       0.96      0.96      0.96       344
+      Danger       0.99      0.99      0.99      1998
+
+    accuracy                           0.99      2759
+   macro avg       0.98      0.98      0.98      2759
+weighted avg       0.99      0.99      0.99      2759
+
+Hyperparameters: {'objective': 'multi:softmax', 'num_class': 3, 'max_depth': 5, 'learning_rate': 0.1, 'n_estimators': 200, 'subsample': 0.8, 'colsample_bytree': 0.8, 'random_state': 42, 'verbosity': 1}
+Class Weights: {0: 1.0, 1: 1.0, 2: 0.5}
