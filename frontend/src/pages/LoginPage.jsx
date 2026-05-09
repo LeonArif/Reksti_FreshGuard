@@ -1,13 +1,36 @@
+import { useState } from "react";
 import { supabase } from "../lib/supabaseClient.js";
 
 function LoginPage() {
+  const [authError, setAuthError] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
   const handleGoogleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: window.location.origin
+    setAuthError("");
+    setIsLoggingIn(true);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+          skipBrowserRedirect: true
+        }
+      });
+
+      if (error) {
+        throw error;
       }
-    });
+
+      if (!data?.url) {
+        throw new Error("Supabase did not return an OAuth URL.");
+      }
+
+      window.location.assign(data.url);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Failed to start Google login.");
+      setIsLoggingIn(false);
+    }
   };
 
   return (
@@ -46,10 +69,14 @@ function LoginPage() {
             <button
               type="button"
               onClick={handleGoogleLogin}
+              disabled={isLoggingIn}
               className="flex w-full items-center justify-center gap-3 rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-glow transition hover:translate-y-[-1px]"
             >
-              Continue with Google
+              {isLoggingIn ? "Opening Google..." : "Continue with Google"}
             </button>
+            {authError ? (
+              <p className="mt-4 text-xs text-rose-600">{authError}</p>
+            ) : null}
             <p className="mt-5 text-xs text-[var(--muted)]">
               By signing in, you agree to the monitoring terms.
             </p>

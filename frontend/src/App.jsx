@@ -27,6 +27,21 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (loading) return;
+
+    const currentPath = window.location.pathname;
+
+    if (session && currentPath !== "/dashboard") {
+      window.location.replace("/dashboard");
+      return;
+    }
+
+    if (!session && currentPath !== "/login") {
+      window.location.replace("/login");
+    }
+  }, [loading, session]);
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] text-sm text-[var(--muted)]">
