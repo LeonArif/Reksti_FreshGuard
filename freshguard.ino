@@ -54,7 +54,7 @@ const char* WIFI_SSID     = "Gak Tau";
 const char* WIFI_PASSWORD = "12345678";
 
 // Backend API
-const char* BACKEND_URL = "http://localhost:3001";
+const char* BACKEND_URL = "https://rekstifreshguard-production.up.railway.app";
 
 // ── Pin Assignments ───────────────────────────────────────────────────────────
 
@@ -79,9 +79,11 @@ const int PIN_LED_RED    = 13;
 const float MQ136_PLACEHOLDER_PPM = 5.0f;
 
 // ── Timing ────────────────────────────────────────────────────────────────────
-const unsigned long READ_INTERVAL_MS   = 10000UL;  // Read sensors every 10 s
-const unsigned long UPLOAD_INTERVAL_MS = 30000UL;  // POST to Supabase every 30 s
-const int           WIFI_TIMEOUT_SEC   = 20;
+const unsigned long READ_INTERVAL_MS        = 10000UL;  // Read sensors every 10 s
+const unsigned long UPLOAD_INTERVAL_MS      = 30000UL;  // POST to Supabase every 30 s
+const unsigned long COMMAND_CHECK_INTERVAL_MS = 5000UL; // Check for frontend request every 5 s
+const unsigned long UPLOAD_REQUEST_EXPIRY_MS  = 60000UL; // Request expires after 60 s
+const int           WIFI_TIMEOUT_SEC         = 20;
 
 // ── MQ-135 Calibration ───────────────────────────────────────────────────────
 // ADC: 12-bit (0–4095), Vref = 3.3 V
@@ -131,12 +133,18 @@ const float g_mq136_ppm = MQ136_PLACEHOLDER_PPM;
 bool  g_reading_ok    = false;
 
 // Timing
-unsigned long g_last_read_ms   = 0;
-unsigned long g_last_upload_ms = 0;
+unsigned long g_last_read_ms    = 0;
+unsigned long g_last_upload_ms  = 0;
+unsigned long g_last_command_check_ms = 0;
 
 // Upload status
 bool g_last_upload_ok = false;
 int  g_http_code      = 0;
+
+// On-demand control (triggered by frontend button)
+bool g_force_upload_requested = false;  // Set when frontend requests upload
+unsigned long g_upload_request_expiry_ms = 0;  // Expiry timestamp
+bool g_wifi_initialized = false;  // Track if WiFi init attempted
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  SECTION 4 — FUNCTION PROTOTYPES
@@ -227,8 +235,8 @@ void setup() {
                   Adafruit_BME280::FILTER_X16,
                   Adafruit_BME280::STANDBY_MS_500);
 
-  // ── Wi-Fi ─────────────────────────────────────────────────────────────────
-  connectWiFi();
+  // ── Wi-Fi (deferred — will connect on first command check) ────────────────
+  Serial.println("[WiFi] Deferred (will connect on first use)");
 
   Serial.println("[FreshGuard] Setup complete\n");
 }
@@ -240,8 +248,53 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // ── READ SENSORS ──────────────────────────────────────────────────────────
-  if (now - g_last_read_ms >= READ_INTERVAL_MS || g_last_read_ms == 0) {
+  // ── LAZY WIFI INIT (first loop only) ──────────────────────────────────────
+  if (!g_wifi_initialized) {
+    g_wifi_initialized = true;
+    Serial.println("[WiFi] Initializing WiFi (first loop)...");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    // Don't wait, just start connection in background
+  }
+
+  // ── CHECK COMMAND ENDPOINT (on-demand trigger from frontend) ──────────────
+  if (now - g_last_command_check_ms >= COMMAND_CHECK_INTERVAL_MS || g_last_command_check_ms == 0) {
+    g_last_command_check_ms = now;
+    
+    // Attempt WiFi if not connected
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.printf("[WiFi] Status: %d (not connected yet)\n", WiFi.status());
+      // Try to advance connection
+      int wait = 0;
+      while (WiFi.status() != WL_CONNECTED && wait < 5) {
+        delay(500);
+        wait++;
+      }
+    }
+    
+    // Only check command if WiFi is connected
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("[Command] WiFi connected, checking command endpoint...");
+      if (shouldForceUpload()) {
+        Serial.println("[Command] ✓ Frontend requested upload!");
+        g_force_upload_requested = true;
+        g_upload_request_expiry_ms = now + UPLOAD_REQUEST_EXPIRY_MS;
+      }
+    } else {
+      Serial.printf("[Command] WiFi still connecting... (status: %d)\n", WiFi.status());
+    }
+  }
+
+  // ── CHECK REQUEST EXPIRY ──────────────────────────────────────────────────
+  if (g_force_upload_requested && (now > g_upload_request_expiry_ms)) {
+    Serial.println("[Command] Upload request expired");
+    g_force_upload_requested = false;
+  }
+
+  // ── READ SENSORS (only if requested from frontend) ────────────────────────
+  bool should_read = g_force_upload_requested;
+  
+  if (should_read && (now - g_last_read_ms >= READ_INTERVAL_MS || g_last_read_ms == 0)) {
     g_last_read_ms = now;
 
     float temp = 0, hum = 0, pres = 0;
@@ -268,33 +321,36 @@ void loop() {
       g_mq135_alarm ? "ALARM" : "OK", g_mq136_ppm);
   }
 
-  // ── UPLOAD ────────────────────────────────────────────────────────────────
-  if (now - g_last_upload_ms >= UPLOAD_INTERVAL_MS || g_last_upload_ms == 0) {
-    g_last_upload_ms = now;
+  // ── UPLOAD (only if request is active) ─────────────────────────────────────
+  if (g_force_upload_requested && g_reading_ok) {
+    if (now - g_last_upload_ms >= UPLOAD_INTERVAL_MS || g_last_upload_ms == 0) {
+      g_last_upload_ms = now;
 
-    if (g_reading_ok) {
-      if (ensureWiFi()) {
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("[Upload] Sending data from frontend request...");
         g_last_upload_ok = postToBackend(
           g_temperature, g_humidity, g_mq135_ppm, g_mq136_ppm);
+        
+        if (g_last_upload_ok) {
+          Serial.println("[Upload] SUCCESS — clearing request flag");
+          g_force_upload_requested = false;
+        }
       } else {
-        Serial.println("[Upload] Skipped — no Wi-Fi");
+        Serial.println("[Upload] WiFi not connected, will retry");
         g_last_upload_ok = false;
       }
       updateOLED(g_temperature, g_humidity, g_pressure, g_mq135_ppm,
                  g_mq135_alarm, g_last_upload_ok, g_http_code);
-    } else {
-      Serial.println("[Upload] Skipped — no valid sensor data yet");
     }
   }
 
-  if (shouldForceUpload()) {
-    if (g_reading_ok && ensureWiFi()) {
-      Serial.println("[Upload] Command received — forcing upload");
-      g_last_upload_ok = postToBackend(
-        g_temperature, g_humidity, g_mq135_ppm, g_mq136_ppm);
-      updateOLED(g_temperature, g_humidity, g_pressure, g_mq135_ppm,
-                 g_mq135_alarm, g_last_upload_ok, g_http_code);
-    }
+  // ── ALWAYS UPDATE OLED (show last sensor values) ──────────────────────────
+  static unsigned long g_last_oled_update_ms = 0;
+  const unsigned long OLED_UPDATE_INTERVAL_MS = 1000UL;  // Update OLED every 1 second
+  if (now - g_last_oled_update_ms >= OLED_UPDATE_INTERVAL_MS) {
+    g_last_oled_update_ms = now;
+    updateOLED(g_temperature, g_humidity, g_pressure, g_mq135_ppm,
+               g_mq135_alarm, g_last_upload_ok, g_http_code);
   }
 
   delay(50);
@@ -393,8 +449,8 @@ bool readMQ135Alarm() {
  *   mq_136      ← 5.0 ppm static placeholder (MQ-136 not installed)
  *   temperature ← BME280 °C (GPIO 33/25)
  *   humidity    ← BME280 %RH
- *   h2s / voc / amonia ← null (not measured in prototype)
- *   tvc / rsl_minutes / class ← sentinel 0 / 0 / 1  (backend AI overwrites)
+ *   h2s / voc / amonia ← omitted (optional fields, not measured in prototype)
+ *   tvc / rsl_minutes / class ← not included (backend AI calculates)
  */
 String buildIngestJSON(float temp, float hum, float mq135, float mq136) {
   JsonDocument doc;  // ArduinoJson v7. For v6: StaticJsonDocument<256> doc;
@@ -403,9 +459,7 @@ String buildIngestJSON(float temp, float hum, float mq135, float mq136) {
   doc["mq_136"]      = roundf(mq136 * 10000.0f) / 10000.0f;
   doc["temperature"] = roundf(temp  * 100.0f)   / 100.0f;
   doc["humidity"]    = roundf(hum   * 100.0f)   / 100.0f;
-  doc["h2s"]         = nullptr;
-  doc["voc"]         = nullptr;
-  doc["amonia"]      = nullptr;
+  // Optional fields (h2s, voc, amonia) are intentionally omitted as they are null
   String json;
   serializeJson(doc, json);
   return json;
@@ -416,21 +470,25 @@ String buildIngestJSON(float temp, float hum, float mq135, float mq136) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * POST to Supabase PostgREST.
- * Headers: apikey, Authorization: Bearer, Content-Type, Prefer: return=minimal
- * Supabase returns 201 Created or 204 No Content on success.
+ * POST to backend REST API.
+ * Content-Type: application/json
+ * Backend returns 200 OK on success after AI prediction
  */
 bool postToBackend(float temp, float hum, float mq135, float mq136) {
-  WiFiClient client;
-
+  WiFiClientSecure client;
+  client.setInsecure();  // Skip SSL verification (Railway self-signed certs)
+  
   HTTPClient http;
   Serial.printf("[HTTP] POST → %s\n", ingestEndpoint);
 
   if (!http.begin(client, ingestEndpoint)) {
-    Serial.println("[HTTP] Failed to open connection"); return false;
+    Serial.println("[HTTP] Failed to open connection");
+    return false;
   }
 
-  http.addHeader("Content-Type",  "application/json");
+  http.addHeader("Content-Type", "application/json");
+  http.setConnectTimeout(5000);  // 5 second timeout
+  http.setTimeout(5000);
 
   String payload = buildIngestJSON(temp, hum, mq135, mq136);
   Serial.printf("[HTTP] Payload: %s\n", payload.c_str());
@@ -440,45 +498,68 @@ bool postToBackend(float temp, float hum, float mq135, float mq136) {
 
   bool ok = false;
   if (code > 0) {
-    Serial.printf("[HTTP] Response: %d\n", code);
-    ok = (code == HTTP_CODE_CREATED || code == HTTP_CODE_OK || code == 204);
-    if (!ok) Serial.printf("[HTTP] Error body: %s\n", http.getString().c_str());
-    else     Serial.println("[HTTP] Upload SUCCESS");
+    Serial.printf("[HTTP] Response Code: %d\n", code);
+    String response = http.getString();
+    
+    // Backend returns 200 after successful insert + AI prediction
+    ok = (code == HTTP_CODE_OK || code == HTTP_CODE_CREATED || code == 204);
+    
+    if (!ok) {
+      Serial.printf("[HTTP] ERROR! Response: %s\n", response.c_str());
+    } else {
+      Serial.println("[HTTP] Upload SUCCESS");
+    }
   } else {
-    Serial.printf("[HTTP] Error: %s\n", http.errorToString(code).c_str());
+    Serial.printf("[HTTP] Connection Error: %s\n", http.errorToString(code).c_str());
   }
 
   http.end();
   return ok;
 }
 
+/**
+ * Check if frontend has requested an upload via backend.
+ * Backend stores flag and returns upload_now: true once, then clears it.
+ */
 bool shouldForceUpload() {
-  if (!ensureWiFi()) {
-    return false;
-  }
-
-  WiFiClient client;
+  WiFiClientSecure client;
+  client.setInsecure();  // Skip SSL verification (Railway self-signed certs)
+  
   HTTPClient http;
+  
   if (!http.begin(client, commandEndpoint)) {
+    Serial.println("[Command] Failed to open connection");
     return false;
   }
 
+  http.setConnectTimeout(3000);
+  http.setTimeout(3000);
   int code = http.GET();
+  
   if (code <= 0) {
+    Serial.printf("[Command] GET failed: %s\n", http.errorToString(code).c_str());
     http.end();
     return false;
   }
 
   String body = http.getString();
   http.end();
+  
+  Serial.printf("[Command] Response (code %d): %s\n", code, body.c_str());
 
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, body);
   if (err) {
+    Serial.printf("[Command] JSON parse error: %s\n", err.c_str());
     return false;
   }
 
-  return doc["upload_now"] | false;
+  bool upload_now = doc["upload_now"] | false;
+  if (upload_now) {
+    Serial.println("[Command] ✓ Upload request received!");
+  }
+  
+  return upload_now;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
