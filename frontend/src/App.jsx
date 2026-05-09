@@ -31,13 +31,18 @@ function App() {
     if (loading) return;
 
     const currentPath = window.location.pathname;
+    const hasOAuthHash = window.location.hash.includes("access_token=");
+
+    if (session && hasOAuthHash) {
+      window.history.replaceState({}, document.title, currentPath);
+    }
 
     if (session && currentPath !== "/dashboard") {
       window.location.replace("/dashboard");
       return;
     }
 
-    if (!session && currentPath !== "/login") {
+    if (!session && currentPath !== "/login" && !hasOAuthHash) {
       window.location.replace("/login");
     }
   }, [loading, session]);
