@@ -10,15 +10,20 @@ function App() {
 
   useEffect(() => {
     let isMounted = true;
+    let authStateChanged = false;
 
     supabase.auth.getSession().then(({ data }) => {
       if (!isMounted) return;
       setSession(data.session);
-      setLoading(false);
+      if (authStateChanged) {
+        setLoading(false);
+      }
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      authStateChanged = true;
       setSession(nextSession);
+      setLoading(false);
     });
 
     return () => {
