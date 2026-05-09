@@ -7,7 +7,7 @@ const navItems = [
   { label: "Settings", value: "settings" }
 ];
 
-function Sidebar({ active }) {
+function Sidebar({ active, isOnline, lastUpdatedLabel }) {
   return (
     <aside className="hidden lg:flex lg:flex-col lg:gap-8 lg:py-10">
       <div className="flex items-center gap-3">
@@ -38,21 +38,25 @@ function Sidebar({ active }) {
 
       <div className="mt-auto rounded-2xl bg-white/70 p-4 text-xs text-[var(--muted)] shadow-soft">
         <div className="mb-2 flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          ESP32 Online
+          <span className={`h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-rose-400"}`} />
+          {isOnline ? "ESP32 Online" : "ESP32 Offline"}
         </div>
-        <p>System status normal</p>
+        <p>Last update: {lastUpdatedLabel}</p>
       </div>
     </aside>
   );
 }
 
 Sidebar.propTypes = {
-  active: PropTypes.string
+  active: PropTypes.string,
+  isOnline: PropTypes.bool,
+  lastUpdatedLabel: PropTypes.string
 };
 
 Sidebar.defaultProps = {
-  active: "dashboard"
+  active: "dashboard",
+  isOnline: false,
+  lastUpdatedLabel: "never"
 };
 
 export default Sidebar;

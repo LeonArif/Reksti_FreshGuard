@@ -23,7 +23,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const scriptPath = path.resolve(__dirname, "..", "..", "ai", "predict.py");
 
-const runPython = (payload) =>
+export const runPython = (payload) =>
   new Promise((resolve, reject) => {
     const pythonCmd = process.env.PYTHON_PATH || "python";
     const child = spawn(pythonCmd, [scriptPath], {

@@ -6,6 +6,8 @@ import PredictionForm from "../components/PredictionForm.jsx";
 import { supabase } from "../lib/supabaseClient.js";
 
 const apiBase = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+const ONLINE_THRESHOLD_SEC = 90;
+const POLL_INTERVAL_MS = 5000;
 
 const formatNumber = (value, digits = 2) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -26,14 +28,21 @@ function DashboardPage() {
   const [manualInput, setManualInput] = useState(null);
   const [manualLoading, setManualLoading] = useState(false);
   const [manualError, setManualError] = useState("");
+  const [requestingUpload, setRequestingUpload] = useState(false);
+  const [requestMessage, setRequestMessage] = useState("");
   const [userEmail, setUserEmail] = useState("");
 
   useEffect(() => {
+    let isMounted = true;
+    let intervalId = null;
+
     const loadSamples = async () => {
       try {
         const response = await fetch(`${apiBase}/api/food?limit=1`);
         const json = await response.json();
-        setFoodRecord(json?.data?.[0] ?? null);
+        if (isMounted) {
+          setFoodRecord(json?.data?.[0] ?? null);
+        }
       } catch (error) {
         console.error("Failed to load samples", error);
       }
@@ -41,12 +50,53 @@ function DashboardPage() {
 
     const loadUser = async () => {
       const { data } = await supabase.auth.getUser();
-      setUserEmail(data?.user?.email ?? "");
+      if (isMounted) {
+        setUserEmail(data?.user?.email ?? "");
+      }
     };
 
     loadSamples();
     loadUser();
+
+    intervalId = window.setInterval(loadSamples, POLL_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
   }, []);
+
+  const handleRequestUpload = async () => {
+    setRequestingUpload(true);
+    setRequestMessage("");
+
+    try {
+      const response = await fetch(`${apiBase}/api/food/request-upload`, {
+        method: "POST"
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json.error || "Failed to request upload");
+      }
+      setRequestMessage("Request sent. Waiting for device...");
+
+      window.setTimeout(async () => {
+        try {
+          const latest = await fetch(`${apiBase}/api/food?limit=1`);
+          const latestJson = await latest.json();
+          setFoodRecord(latestJson?.data?.[0] ?? null);
+        } catch (error) {
+          console.error("Failed to refresh data", error);
+        }
+      }, 3000);
+    } catch (error) {
+      setRequestMessage(error.message);
+    } finally {
+      setRequestingUpload(false);
+    }
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -92,6 +142,16 @@ function DashboardPage() {
   const classProbabilities = foodRecord?.class_probabilities ?? null;
   const dangerProbabilities = classProbabilities && freshnessLabel === "Danger";
 
+  const lastUpdatedAt = foodRecord?.created_at ? new Date(foodRecord.created_at) : null;
+  const lastUpdatedSec = lastUpdatedAt ? Math.max(0, Math.floor((Date.now() - lastUpdatedAt.getTime()) / 1000)) : null;
+  const lastUpdatedLabel = lastUpdatedSec === null
+    ? "never"
+    : lastUpdatedSec < 60
+      ? `${lastUpdatedSec}s ago`
+      : `${Math.floor(lastUpdatedSec / 60)}m ago`;
+  const isOnline = lastUpdatedSec !== null && lastUpdatedSec <= ONLINE_THRESHOLD_SEC;
+  const statusLabel = isOnline ? "ESP32 online" : "ESP32 offline";
+
   const statusTone = useMemo(() => {
     if (freshnessLabel === "Danger") return "bg-rose-50";
     if (freshnessLabel === "Warning") return "bg-amber-50";
@@ -101,14 +161,33 @@ function DashboardPage() {
   return (
     <div className="min-h-screen bg-[var(--bg)]">
       <div className="mx-auto grid max-w-6xl gap-8 px-6 py-8 lg:grid-cols-[240px,1fr]">
-        <Sidebar active="dashboard" />
+        <Sidebar
+          active="dashboard"
+          isOnline={isOnline}
+          lastUpdatedLabel={lastUpdatedLabel}
+        />
 
         <div className="flex flex-col gap-6">
           <TopBar
-            statusLabel="ESP32 connected via Wi-Fi"
+            statusLabel={statusLabel}
+            lastUpdatedLabel={lastUpdatedLabel}
             userEmail={userEmail}
             onSignOut={handleSignOut}
           />
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleRequestUpload}
+              disabled={requestingUpload}
+              className="rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-glow transition hover:translate-y-[-1px] disabled:opacity-60"
+            >
+              {requestingUpload ? "Requesting..." : "Request device upload"}
+            </button>
+            {requestMessage ? (
+              <span className="text-xs text-[var(--muted)]">{requestMessage}</span>
+            ) : null}
+          </div>
 
           <div className="grid gap-6 lg:grid-cols-[1.6fr,1fr]">
             <div className="grid gap-6">
