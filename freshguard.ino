@@ -98,7 +98,6 @@ const bool MQ135_ALARM_ACTIVE_LOW = true;
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
@@ -478,9 +477,7 @@ String buildIngestJSON(float temp, float hum, float mq135, float mq136) {
  * Backend returns 200 OK on success after AI prediction
  */
 bool postToBackend(float temp, float hum, float mq135, float mq136) {
-  WiFiClientSecure client;
-  client.setInsecure();  // Skip SSL verification (Railway self-signed certs)
-  
+  WiFiClient client;
   HTTPClient http;
   Serial.printf("[HTTP] POST → %s\n", ingestEndpoint);
 
@@ -490,8 +487,8 @@ bool postToBackend(float temp, float hum, float mq135, float mq136) {
   }
 
   http.addHeader("Content-Type", "application/json");
-  http.setConnectTimeout(5000);  // 5 second timeout
-  http.setTimeout(5000);
+  http.setConnectTimeout(5000);
+  http.setTimeout(12000);  // 12 s — Python AI inference can take a few seconds
 
   String payload = buildIngestJSON(temp, hum, mq135, mq136);
   Serial.printf("[HTTP] Payload: %s\n", payload.c_str());
@@ -525,11 +522,9 @@ bool postToBackend(float temp, float hum, float mq135, float mq136) {
  * Backend stores flag and returns upload_now: true once, then clears it.
  */
 bool shouldForceUpload() {
-  WiFiClientSecure client;
-  client.setInsecure();  // Skip SSL verification (Railway self-signed certs)
-  
+  WiFiClient client;
   HTTPClient http;
-  
+
   if (!http.begin(client, commandEndpoint)) {
     Serial.println("[Command] Failed to open connection");
     return false;
