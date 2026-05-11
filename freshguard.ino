@@ -126,7 +126,8 @@ char commandEndpoint[140];
 float g_temperature   = 0.0f;
 float g_humidity      = 0.0f;
 float g_pressure      = 0.0f;
-float g_mq135_ppm     = 0.0f;
+int   g_mq135_adc     = 0;        // Raw ADC value (0-4095) — primary for backend
+float g_mq135_ppm     = 0.0f;     // Derived from ADC for display only
 bool  g_mq135_alarm   = false;
 const float g_mq136_ppm = MQ136_PLACEHOLDER_PPM;
 bool  g_reading_ok    = false;
@@ -152,9 +153,10 @@ bool g_wifi_initialized = false;  // Track if WiFi init attempted
 void   connectWiFi();
 bool   ensureWiFi();
 bool   readBME280(float& temp, float& hum, float& pres);
-float  readMQ135PPM();
+int    readMQ135ADC();        // Raw ADC for backend
+float  readMQ135PPMfromADC(int adc);  // Derived PPM for display
 bool   readMQ135Alarm();
-bool   postToBackend(float temp, float hum, float mq135, float mq136);
+bool   postToBackend(float temp, float hum, int mq135_adc, float mq136);
 bool   shouldForceUpload();
 String buildIngestJSON(float temp, float hum, float mq135, float mq136);
 void   updateLEDs(float mq135, bool alarm);
@@ -309,7 +311,8 @@ void loop() {
       Serial.println("[BME280] Read failed — using previous values");
     }
 
-    g_mq135_ppm   = readMQ135PPM();
+    g_mq135_adc   = readMQ135ADC();
+    g_mq135_ppm   = readMQ135PPMfromADC(g_mq135_adc);  // For display only
     g_mq135_alarm = readMQ135Alarm();
 
     updateLEDs(g_mq135_ppm, g_mq135_alarm);
@@ -318,8 +321,8 @@ void loop() {
 
     Serial.printf(
       "[Sensors] Temp=%.2f°C  Hum=%.2f%%  Pres=%.1fhPa  "
-      "MQ135=%.2fppm  DO=%s  MQ136*=%.2fppm\n",
-      g_temperature, g_humidity, g_pressure, g_mq135_ppm,
+      "MQ135_ADC=%d  MQ135_PPM=%.2fppm  DO=%s  MQ136*=%.2fppm\n",
+      g_temperature, g_humidity, g_pressure, g_mq135_adc, g_mq135_ppm,
       g_mq135_alarm ? "ALARM" : "OK", g_mq136_ppm);
   }
 
@@ -331,7 +334,7 @@ void loop() {
       if (WiFi.status() == WL_CONNECTED) {
         Serial.println("[Upload] Sending data from frontend request...");
         g_last_upload_ok = postToBackend(
-          g_temperature, g_humidity, g_mq135_ppm, g_mq136_ppm);
+          g_temperature, g_humidity, g_mq135_adc, g_mq136_ppm);
         
         if (g_last_upload_ok) {
           Serial.println("[Upload] SUCCESS — clearing request flag");
@@ -417,14 +420,22 @@ bool readBME280(float& temp, float& hum, float& pres) {
 }
 
 /**
- * Read MQ-135 AO (GPIO 32) → ppm via Rs/Ro ratio.
- * Averages 10 ADC samples. Calibrate MQ135_RO_CLEAN in clean air.
+ * Read MQ-135 AO (GPIO 32) → raw ADC value (0-4095).
+ * Averages 10 ADC samples. This is the primary value for backend + model.
  */
-float readMQ135PPM() {
+int readMQ135ADC() {
   long sum = 0;
   for (int i = 0; i < 10; i++) { sum += analogRead(PIN_MQ135_AO); delay(5); }
-  float adc = constrain((float)sum / 10.0f, 1.0f, 4094.0f);
-  float vout = (adc / 4095.0f) * 3.3f;
+  return (int)constrain((float)sum / 10.0f, 0.0f, 4095.0f);
+}
+
+/**
+ * Convert ADC value to PPM via Rs/Ro ratio (for display only).
+ * Calibrate MQ135_RO_CLEAN in clean air.
+ */
+float readMQ135PPMfromADC(int adc) {
+  float adc_f = (float)adc;
+  float vout = (adc_f / 4095.0f) * 3.3f;
   float RS   = ((3.3f - vout) / vout) * MQ135_R_LOAD;
   float ratio = RS / MQ135_RO_CLEAN;
   float ppm   = 116.6020682f * powf(ratio, -2.769034857f);
@@ -447,17 +458,17 @@ bool readMQ135Alarm() {
 /**
  * Builds JSON matching kondisi_makanan schema.
  *
- *   mq_135      ← MQ-135 ppm (analog reading from GPIO 32)
+ *   mq_135      ← MQ-135 ADC (0-4095, raw analog reading from GPIO 32)
  *   mq_136      ← 5.0 ppm static placeholder (MQ-136 not installed)
  *   temperature ← BME280 °C (GPIO 33/25)
  *   humidity    ← BME280 %RH
  *   h2s / voc / amonia ← omitted (optional fields, not measured in prototype)
  *   tvc / rsl_minutes / class ← not included (backend AI calculates)
  */
-String buildIngestJSON(float temp, float hum, float mq135, float mq136) {
+String buildIngestJSON(float temp, float hum, int mq135_adc, float mq136) {
   JsonDocument doc;  // ArduinoJson v7. For v6: StaticJsonDocument<256> doc;
 
-  doc["mq_135"]      = roundf(mq135 * 10000.0f) / 10000.0f;
+  doc["mq_135"]      = mq135_adc;  // Raw ADC (integer, 0-4095)
   doc["mq_136"]      = roundf(mq136 * 10000.0f) / 10000.0f;
   doc["temperature"] = roundf(temp  * 100.0f)   / 100.0f;
   doc["humidity"]    = roundf(hum   * 100.0f)   / 100.0f;
@@ -476,7 +487,7 @@ String buildIngestJSON(float temp, float hum, float mq135, float mq136) {
  * Content-Type: application/json
  * Backend returns 200 OK on success after AI prediction
  */
-bool postToBackend(float temp, float hum, float mq135, float mq136) {
+bool postToBackend(float temp, float hum, int mq135_adc, float mq136) {
   WiFiClient client;
   HTTPClient http;
   Serial.printf("[HTTP] POST → %s\n", ingestEndpoint);
@@ -490,7 +501,7 @@ bool postToBackend(float temp, float hum, float mq135, float mq136) {
   http.setConnectTimeout(5000);
   http.setTimeout(12000);  // 12 s — Python AI inference can take a few seconds
 
-  String payload = buildIngestJSON(temp, hum, mq135, mq136);
+  String payload = buildIngestJSON(temp, hum, mq135_adc, mq136);
   Serial.printf("[HTTP] Payload: %s\n", payload.c_str());
 
   int code = http.POST(payload);
