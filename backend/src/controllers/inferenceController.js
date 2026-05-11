@@ -69,8 +69,16 @@ export const runManualPrediction = async (req, res) => {
 
   try {
     const input = parseResult.data;
+    
+    // Scale MQ-135 ADC (0-4095) to dataset range (0-547) if needed
+    // For manual input, assume already in correct range or use as-is
+    // If input is ADC raw (0-4095), scale it
+    const mq135_value = input.mq135 > 1000 ? 
+      Math.max(0, Math.min(547, (input.mq135 / 4095) * 547)) : 
+      input.mq135;  // If <= 1000, assume already scaled
+    
     const result = await runPython({
-      mq135: input.mq135,
+      mq135: mq135_value,
       mq136: input.mq136,
       temperature: input.temperature,
       humidity: input.humidity

@@ -24,6 +24,11 @@ const formatPercent = (value) => {
   return `${(Number(value) * 100).toFixed(2)}%`;
 };
 
+const scaleMQ135ADC = (adc) => {
+  // Scale ADC (0-4095) to model training range (0-547)
+  return Math.max(0, Math.min(547, (adc / 4095) * 547));
+};
+
 function DashboardPage() {
   const [foodRecord, setFoodRecord] = useState(null);
   const [manualInput, setManualInput] = useState(null);
@@ -240,9 +245,10 @@ function DashboardPage() {
 
             <div className="grid gap-6 md:grid-cols-2">
               <MetricCard
-                title="MQ-135"
-                value={formatNumber(foodRecord?.mq_135)}
-                unit="ppm"
+                title="MQ-135 (Scaled)"
+                value={formatNumber(scaleMQ135ADC(foodRecord?.mq_135 ?? 0), 1)}
+                unit="sensor range"
+                subtitle="ADC value"
               />
               <MetricCard
                 title="MQ-136"
