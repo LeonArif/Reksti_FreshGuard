@@ -198,8 +198,8 @@ function DashboardPage() {
             ) : null}
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[1.6fr,1fr]">
-            <div className="grid gap-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-6 lg:col-span-2">
               <div className={`rounded-3xl p-6 shadow-soft ${statusTone}`}>
                 <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Current food status</p>
                 <p className="mt-2 text-sm text-[var(--text-strong)]">Main storage unit</p>
@@ -223,31 +223,9 @@ function DashboardPage() {
                 </div>
               </div>
             </div>
-
-            <div className="grid gap-6">
-              <MetricCard
-                title="Air quality"
-                  value={formatNumber(foodRecord?.h2s)}
-                unit="H2S"
-                tone="bg-white/90"
-                subtitle="Latest H2S reading"
-              />
-              <MetricCard
-                title="VOC"
-                  value={formatNumber(foodRecord?.voc)}
-                unit="ppm"
-                tone="bg-white/90"
-                subtitle="Volatile organic compounds"
-              />
-            </div>
           </div>
 
-            <div className="grid gap-6 md:grid-cols-3">
-            <MetricCard
-              title="Amonia"
-                value={formatNumber(foodRecord?.amonia)}
-              unit="ppm"
-            />
+            <div className="grid gap-6 md:grid-cols-2">
             <MetricCard
                 title="Temperature"
                 value={formatNumber(foodRecord?.temperature)}
@@ -287,9 +265,6 @@ function DashboardPage() {
                 <span>MQ-136: {manualInput.mq136 || "-"}</span>
                 <span>Temperature: {manualInput.temperature || "-"}</span>
                 <span>Humidity: {manualInput.humidity || "-"}</span>
-                <span>H2S: {manualInput.h2s || "-"}</span>
-                <span>VOC: {manualInput.voc || "-"}</span>
-                <span>Amonia: {manualInput.amonia || "-"}</span>
               </div>
             </div>
           ) : null}
