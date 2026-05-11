@@ -3,6 +3,8 @@ import { supabase } from "../db/supabaseClient.js";
 import { runPython } from "./inferenceController.js";
 
 let uploadRequestedAt = null;
+let pendingPredictResolve = null;
+let pendingPredictTimer   = null;
 
 const optionalNumber = z.preprocess(
   (value) => (value === "" || value === null || value === undefined ? null : Number(value)),
@@ -105,12 +107,53 @@ export const createFoodRecord = async (req, res) => {
     // Prediction is best-effort to keep ingestion fast.
   }
 
+  // Resolve any frontend long-poll waiting for this result
+  if (pendingPredictResolve) {
+    const resolve = pendingPredictResolve;
+    pendingPredictResolve = null;
+    clearTimeout(pendingPredictTimer);
+    pendingPredictTimer = null;
+    resolve(normalizeFoodRecord(updatedRecord));
+  }
+
   return res.status(201).json({ data: normalizeFoodRecord(updatedRecord) });
 };
 
 export const requestDeviceUpload = async (_req, res) => {
   uploadRequestedAt = new Date();
   return res.json({ ok: true, requested_at: uploadRequestedAt.toISOString() });
+};
+
+// POST /api/food/predict
+// Sets upload flag then long-polls up to 15 s for ESP32 to deliver sensor data.
+// Returns the complete prediction record once received, or 504 on timeout.
+export const predictWithDevice = async (_req, res) => {
+  // Cancel any previous pending request
+  if (pendingPredictTimer) {
+    clearTimeout(pendingPredictTimer);
+    pendingPredictTimer = null;
+  }
+  if (pendingPredictResolve) {
+    pendingPredictResolve(null);
+    pendingPredictResolve = null;
+  }
+
+  uploadRequestedAt = new Date();
+
+  const record = await new Promise((resolve) => {
+    pendingPredictResolve = resolve;
+    pendingPredictTimer = setTimeout(() => {
+      pendingPredictResolve = null;
+      pendingPredictTimer   = null;
+      resolve(null);
+    }, 15000);
+  });
+
+  if (!record) {
+    return res.status(504).json({ success: false, error: "ESP32 tidak merespons dalam 15 detik. Pastikan perangkat menyala dan terhubung Wi-Fi." });
+  }
+
+  return res.json({ success: true, data: record });
 };
 
 export const getDeviceCommand = async (_req, res) => {

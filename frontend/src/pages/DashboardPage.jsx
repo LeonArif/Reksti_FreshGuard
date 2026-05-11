@@ -8,6 +8,7 @@ import { supabase } from "../lib/supabaseClient.js";
 const apiBase = import.meta.env.VITE_API_BASE || "http://localhost:3001";
 const ONLINE_THRESHOLD_SEC = 90;
 const POLL_INTERVAL_MS = 5000;
+const PREDICT_TIMEOUT_MS = 16000;
 
 const formatNumber = (value, digits = 2) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -70,29 +71,37 @@ function DashboardPage() {
 
   const handleRequestUpload = async () => {
     setRequestingUpload(true);
-    setRequestMessage("");
+    setRequestMessage("Menghubungi ESP32, tunggu sebentar...");
 
     try {
-      const response = await fetch(`${apiBase}/api/food/request-upload`, {
-        method: "POST"
-      });
-      const json = await response.json();
-      if (!response.ok) {
-        throw new Error(json.error || "Failed to request upload");
-      }
-      setRequestMessage("Request sent. Waiting for device...");
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), PREDICT_TIMEOUT_MS);
 
-      window.setTimeout(async () => {
-        try {
-          const latest = await fetch(`${apiBase}/api/food?limit=1`);
-          const latestJson = await latest.json();
-          setFoodRecord(latestJson?.data?.[0] ?? null);
-        } catch (error) {
-          console.error("Failed to refresh data", error);
-        }
-      }, 3000);
+      const response = await fetch(`${apiBase}/api/food/predict`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json.error || "Prediksi gagal");
+      }
+
+      if (json.success && json.data) {
+        setFoodRecord(json.data);
+        setRequestMessage("Prediksi berhasil!");
+      } else {
+        throw new Error("Data tidak valid dari server");
+      }
     } catch (error) {
-      setRequestMessage(error.message);
+      if (error.name === "AbortError") {
+        setRequestMessage("Timeout: ESP32 tidak merespons. Pastikan perangkat menyala.");
+      } else {
+        setRequestMessage(error.message);
+      }
     } finally {
       setRequestingUpload(false);
     }
@@ -182,7 +191,7 @@ function DashboardPage() {
               disabled={requestingUpload}
               className="rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-glow transition hover:translate-y-[-1px] disabled:opacity-60"
             >
-              {requestingUpload ? "Requesting..." : "Request device upload"}
+              {requestingUpload ? "Predicting..." : "Predict"}
             </button>
             {requestMessage ? (
               <span className="text-xs text-[var(--muted)]">{requestMessage}</span>

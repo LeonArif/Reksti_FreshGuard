@@ -279,6 +279,9 @@ void loop() {
         Serial.println("[Command] ✓ Frontend requested upload!");
         g_force_upload_requested = true;
         g_upload_request_expiry_ms = now + UPLOAD_REQUEST_EXPIRY_MS;
+        // Reset timing so sensor read + upload happen immediately
+        g_last_read_ms   = 0;
+        g_last_upload_ms = 0;
       }
     } else {
       Serial.printf("[Command] WiFi still connecting... (status: %d)\n", WiFi.status());

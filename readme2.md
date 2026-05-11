@@ -1,6 +1,6 @@
 # 🥩 Fresh Guard — Panduan Lengkap Penggunaan Sistem
 
-> Sistem deteksi kesegaran makanan berbasis ESP32 yang mengukur kualitas udara, suhu, dan kelembapan lalu mengirim data ke database Supabase secara otomatis.
+> Sistem deteksi kesegaran makanan berbasis ESP32 yang di-trigger dari website frontend. Saat user klik button "Predict", ESP32 membaca sensor (suhu, kelembapan, kualitas udara) dan mengirim ke backend untuk prediksi AI secara real-time.
 
 ---
 
@@ -15,7 +15,8 @@
 7. [Kalibrasi Sensor MQ-135](#7-kalibrasi-sensor-mq-135)
 8. [Persiapan Database Supabase](#8-persiapan-database-supabase)
 9. [Menjalankan Backend Node.js](#9-menjalankan-backend-nodejs)
-10. [Alur Data: Sensor → Database](#10-alur-data-sensor--database)
+10. [Alur Data: Trigger → Sensor → Prediksi](#10-alur-data-trigger--sensor--prediksi)
+10.5 [Protokol Komunikasi IoT & Networking](#105-protokol-komunikasi-iot--networking)
 11. [Monitoring & Verifikasi Data](#11-monitoring--verifikasi-data)
 12. [Indikator LED & OLED](#12-indikator-led--oled)
 13. [Troubleshooting](#13-troubleshooting)
@@ -25,27 +26,100 @@
 
 ## 1. Gambaran Umum Sistem
 
+### Arsitektur Trigger-Based (Event-Driven)
+
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        FRESH GUARD SYSTEM                           │
-│                                                                     │
-│  [BME280]──I2C──┐                                                   │
-│  [MQ-135] ──────┤                      ┌──────────────┐             │
-│  [MQ-136*]      ├──► [ESP32-WROOM-32] ─► Wi-Fi/HTTPS ─► [Supabase] │
-│  [OLED]  ──I2C──┘         │            └──────────────┘    DB       │
-│  [LEDs]  ◄────────────────┘                                         │
-│                                                                     │
-│  * MQ-136 tidak terpasang, menggunakan nilai statis 5.0 ppm         │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                   FRESH GUARD — SMART PREDICTION SYSTEM                  │
+│                                                                          │
+│  LAYER 1: Frontend (Browser)                                             │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │  Website: [Button: "Predict"] ──────► User klik untuk trigger   │     │
+│  └────────┬───────────────────────────────────────────────────────┘     │
+│           │ HTTP POST /api/food/predict                                  │
+│           ▼                                                               │
+│  LAYER 2: Backend (Node.js) — Orchestrator                               │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │  1. SET control flag di Supabase (action: "READ_SENSORS")      │     │
+│  │  2. WAIT untuk ESP32 mengirim data sensor                      │     │
+│  │  3. INVOKE Python model untuk prediksi                         │     │
+│  │  4. SAVE hasil prediksi ke Supabase                            │     │
+│  │  5. RETURN hasil ke Frontend                                   │     │
+│  └────────┬───────────────────────────────────────────────────────┘     │
+│           │                                                               │
+│           ├──────────► Supabase Cloud Database                            │
+│           │            - Table: control_commands                         │
+│           │            - Table: kondisi_makanan                          │
+│           │                                                               │
+│           └──────────► Python AI Model (predict.py)                      │
+│                        Input: sensor readings                            │
+│                        Output: TVC, RSL, class                           │
+│                                                                          │
+│  LAYER 3: IoT (ESP32) — Sensor Collector                                 │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │  [BME280]──┐                                                    │     │
+│  │  [MQ-135]  ├──► [ESP32-WROOM-32] ◄─── Polling Supabase setiap 5s    │
+│  │  [OLED]────┤         │                                          │     │
+│  │  [LEDs]◄───┘         │                                          │     │
+│  │                      │                                          │     │
+│  │  Workflow:           │                                          │     │
+│  │  1. Monitor Supabase control_commands table                     │     │
+│  │  2. Saat ada trigger, BACA sensor (BME280, MQ-135)            │     │
+│  │  3. KIRIM data ke Backend via POST /api/food/sensor-data       │     │
+│  │  4. DISPLAY hasil di OLED & LED                                │     │
+│  └────────────────────────────────────────────────────────────────┘     │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Alur Lengkap (Flow Diagram):
+
+```
+User Browser                 Backend                  Supabase              ESP32
+   │                           │                         │                   │
+   │─── Klik "Predict" ────────►                         │                   │
+   │                           │                         │                   │
+   │                           │─── SET control_commands ────────────────────►│
+   │                           │     (action: READ)       │                   │
+   │                           │                         │    [POLLING EVERY 5s]
+   │                           │                         │                   │
+   │                           │                         │◄── Cek flag       │
+   │                           │                         │     (flag=ON)      │
+   │                           │                         │                   │
+   │                           │                         │                   │
+   │                           │◄── ESP32 kirim data ─────────────────────────┤
+   │                           │    (temp, hum, MQ135)   │    [Baca sensor]  │
+   │                           │                         │                   │
+   │                           │─── Python predict() ──┐ │                   │
+   │                           │    (TVC, RSL, class) │ │                   │
+   │                           │                      └─┤                   │
+   │                           │─── UPDATE DB ─────────►│                   │
+   │                           │   (save results)       │                   │
+   │◄─── Response JSON ────────┤                         │                   │
+   │   (hasil prediksi)         │                         │                   │
+   │                           │                         │                   │
+   │─── DISPLAY hasil ─────────►                         │                   │
+   │   (update chart/metric)    │                         │                   │
+```
+
+### Keuntungan Arsitektur Baru:
+✅ **Event-driven** — ESP32 hanya baca saat ada trigger, hemat power  
+✅ **Cloud-ready** — Frontend, Backend, dan IoT bisa di network berbeda  
+✅ **Scalable** — Mudah tambah multiple ESP32 / sensor lainnya  
+✅ **Real-time** — Prediksi instant setelah sensor data diterima  
+✅ **No firewall issues** — ESP32 hanya polling database (outbound only)  
+✅ **Deployment fleksibel** — Backend di cloud, ESP32 di lokal / lab  
+
 ### Alur kerja singkat:
-1. **ESP32 menyala** → koneksi Wi-Fi otomatis
-2. **Setiap 10 detik** → baca sensor BME280 (suhu & kelembapan) + MQ-135 (kualitas udara)
-3. **Setiap 30 detik** → kirim data via HTTP POST ke Supabase REST API
-4. **Supabase menyimpan** data mentah ke tabel `kondisi_makanan`
-5. **Backend Node.js** (opsional) → jalankan model AI Python untuk prediksi TVC, RSL, dan class kesegaran
-6. **LED & OLED** → tampilkan status real-time
+1. **User buka website frontend** → koneksi ke backend cloud
+2. **User klik button "Predict"** → trigger request ke backend
+3. **Backend SET flag** di Supabase untuk memberitahu ESP32
+4. **ESP32 polling Supabase setiap 5 detik** → deteksi flag
+5. **Saat flag ON, ESP32 baca sensor** BME280 + MQ-135
+6. **ESP32 kirim data sensor ke backend** via HTTP POST
+7. **Backend invoke Python AI model** → hitung TVC, RSL, class
+8. **Backend save hasil ke Supabase** dan return ke frontend
+9. **Website update chart dengan hasil prediksi** real-time
+10. **LED & OLED di ESP32** tampilkan status
 
 ---
 
@@ -511,61 +585,154 @@ Respons sukses:
 
 ---
 
-## 10. Alur Data: Sensor → Database
+## 10. Alur Data: Trigger → Sensor → Prediksi
 
-Berikut alur lengkap dari pembacaan sensor hingga data tersimpan di database:
+### Skenario Trigger-Based (Frontend Control)
+
+Berikut alur lengkap dari user klik tombol di website sampai hasil prediksi ditampilkan:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          ALUR DATA FRESH GUARD                              │
-│                                                                             │
-│  SETIAP 10 DETIK:                                                           │
-│  ┌──────────┐    ┌──────────┐    ┌──────────────────────────────────────┐  │
-│  │ BME280   │    │ MQ-135   │    │ ESP32 Processing                     │  │
-│  │ Temp °C  │───►│ AO→ADC   │───►│ - Rata-rata 10 sampel ADC           │  │
-│  │ Hum %RH  │    │ DO alarm │    │ - Konversi ADC → Volt → Rs → ppm    │  │
-│  └──────────┘    └──────────┘    │ - Update LED & OLED                  │  │
-│                                  └──────────────────────────────────────┘  │
-│                                                                             │
-│  SETIAP 30 DETIK:                                                           │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ JSON Payload (HTTP POST ke Supabase)                                │   │
-│  │                                                                     │   │
-│  │ {                                                                   │   │
-│  │   "mq_135": 125.40,         ← dari ADC GPIO 32                     │   │
-│  │   "mq_136": 5.0,            ← STATIS (MQ-136 tidak terpasang)      │   │
-│  │   "temperature": 27.45,     ← dari BME280                          │   │
-│  │   "humidity": 68.20,        ← dari BME280                          │   │
-│  │   "h2s": null,              ← tidak diukur                         │   │
-│  │   "voc": null,              ← tidak diukur                         │   │
-│  │   "amonia": null,           ← tidak diukur                         │   │
-│  │   "tvc": 0.0,               ← sentinel; AI backend akan overwrite  │   │
-│  │   "rsl_minutes": 0.0,       ← sentinel; AI backend akan overwrite  │   │
-│  │   "class": 1                ← sentinel; AI backend akan overwrite  │   │
-│  │ }                                                                   │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                        │                                                    │
-│                        ▼ HTTPS POST /rest/v1/kondisi_makanan                │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ SUPABASE DATABASE                                                   │   │
-│  │                                                                     │   │
-│  │ kondisi_makanan:                                                    │   │
-│  │ id | mq_135 | mq_136 | temp | hum | tvc | rsl_min | class | time  │   │
-│  │ ── │ 125.4  │ 5.0    │ 27.4 │ 68.2│ 0.0 │ 0.0     │ 1     │ now  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                        │                                                    │
-│                        ▼ (Opsional) Backend Node.js memanggil predict.py   │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ POST /api/food/manual  (trigger manual inference)                   │   │
-│  │                                                                     │   │
-│  │ Python AI Model → hitung:                                           │   │
-│  │   tvc = 4.2 log10 CFU/g                                             │   │
-│  │   rsl_minutes = 1440 (24 jam tersisa)                               │   │
-│  │   class = 1 (Warning)                                               │   │
-│  │                                                                     │   │
-│  │ → UPDATE kondisi_makanan SET tvc=4.2, rsl_minutes=1440, class=2    │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
+╔════════════════════════════════════════════════════════════════════════════╗
+║                  ALUR DATA: FRONTEND TRIGGER → PREDIKSI                    ║
+║                                                                            ║
+║ STEP 1: User Action (Frontend)                                             ║
+║ ┌────────────────────────────────────────────────────────────────────┐    ║
+║ │ Website: [Button: Predict] ◄─── User click                        │    ║
+║ │ HTTP POST http://localhost:3001/api/food/predict                  │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 2: Backend Orchestration                                              ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ Node.js Backend:                                                   │    ║
+║ │  1. SET Supabase control_commands:                                 │    ║
+║ │     { id, action: "READ_SENSORS", status: "PENDING", timestamp }   │    ║
+║ │  2. WAIT max 15 seconds untuk esp32 send data                      │    ║
+║ │  3. CREATE listener untuk POST incoming sensor data                │    ║
+║ │     Endpoint: POST /api/food/sensor-data                           │    ║
+║ │     Payload: {temp, humidity, mq135, ...}                         │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 3: Database Flag (Supabase)                                           ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ control_commands table:                                            │    ║
+║ │                                                                    │    ║
+║ │ id  │ action        │ status    │ timestamp           │ data_sent │    ║
+║ │ ─── │ ─────────────── │ ───────── │ ──────────────────── │ ───────── │    ║
+║ │ 001 │ READ_SENSORS  │ PENDING   │ 2026-05-11T10:30:00 │ false     │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 4: ESP32 Polling                                                      ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ ESP32 Loop (Polling setiap 5 detik):                               │    ║
+║ │  1. QUERY Supabase: SELECT * FROM control_commands                 │    ║
+║ │                    WHERE status = 'PENDING'                        │    ║
+║ │  2. Jika ADA flag → Proceed ke STEP 5                              │    ║
+║ │  3. Jika TIDAK ada → continue polling                              │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 5: Read Sensors (ESP32)                                               ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ [BME280]  ──I2C──┐                                                 │    ║
+║ │ [MQ-135]  ───────┼──► ESP32 ADC reads ──► Average 10 samples       │    ║
+║ │ [OLED] ◄─────────┤                                                  │    ║
+║ │ [LEDs] ◄─────────┘                                                  │    ║
+║ │                                                                    │    ║
+║ │ Hasil pembacaan:                                                   │    ║
+║ │ {                                                                  │    ║
+║ │   "temperature": 27.45,      ← BME280                              │    ║
+║ │   "humidity": 68.20,         ← BME280                              │    ║
+║ │   "mq_135": 125.40,          ← MQ-135 analog via ADC               │    ║
+║ │   "mq_136": 5.0,             ← STATIS (tidak terpasang)            │    ║
+║ │   "timestamp": "2026-05-11T10:30:05Z"                              │    ║
+║ │ }                                                                  │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 6: ESP32 Upload Data                                                  ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ ESP32 POST to Backend:                                             │    ║
+║ │ POST http://backend.azure.com/api/food/sensor-data                 │    ║
+║ │ (atau localhost:3001 jika network sama)                            │    ║
+║ │                                                                    │    ║
+║ │ Headers:                                                           │    ║
+║ │   Content-Type: application/json                                   │    ║
+║ │   Authorization: Bearer <jwt_token>                                │    ║
+║ │                                                                    │    ║
+║ │ Body: {temp: 27.45, hum: 68.2, mq135: 125.4, ...}                 │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 7: AI Prediction (Python Model)                                       ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ Backend receives sensor data                                       │    ║
+║ │  → Invoke Python script: python ai/predict.py                      │    ║
+║ │                                                                    │    ║
+║ │ Input features:                                                    │    ║
+║ │   [temperature, humidity, mq135, ...] → features array             │    ║
+║ │                                                                    │    ║
+║ │ Model calculations:                                                │    ║
+║ │   tvc = 3.2 log10 CFU/g (Total Viable Count)                       │    ║
+║ │   rsl_minutes = 1440 (24 jam remaining)                            │    ║
+║ │   class = 0 (Safe) | 1 (Warning) | 2 (Danger)                      │    ║
+║ │                                                                    │    ║
+║ │ Output:                                                            │    ║
+║ │   {"tvc": 3.2, "rsl_minutes": 1440, "class": 0}                    │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 8: Save Results (Supabase)                                            ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ Backend UPDATE Supabase:                                           │    ║
+║ │ INSERT INTO kondisi_makanan:                                       │    ║
+║ │ {                                                                  │    ║
+║ │   "temperature": 27.45,                                            │    ║
+║ │   "humidity": 68.20,                                               │    ║
+║ │   "mq_135": 125.40,                                                │    ║
+║ │   "tvc": 3.2,            ← AI result                               │    ║
+║ │   "rsl_minutes": 1440,   ← AI result                               │    ║
+║ │   "class": 0,            ← AI result (Safe)                        │    ║
+║ │   "created_at": "2026-05-11T10:30:05Z"                             │    ║
+║ │ }                                                                  │    ║
+║ │                                                                    │    ║
+║ │ + UPDATE control_commands: SET status="COMPLETED"                   │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 9: Return to Frontend                                                 ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ Backend HTTP Response 200 OK:                                      │    ║
+║ │ {                                                                  │    ║
+║ │   "success": true,                                                 │    ║
+║ │   "data": {                                                        │    ║
+║ │     "id": "uuid-xxx",                                              │    ║
+║ │     "temperature": 27.45,                                          │    ║
+║ │     "humidity": 68.20,                                             │    ║
+║ │     "mq_135": 125.40,                                              │    ║
+║ │     "tvc": 3.2,                                                    │    ║
+║ │     "rsl_minutes": 1440,                                           │    ║
+║ │     "class": 0,                                                    │    ║
+║ │     "class_label": "Safe ✅",                                       │    ║
+║ │     "created_at": "2026-05-11T10:30:05Z"                           │    ║
+║ │   },                                                               │    ║
+║ │   "message": "Prediksi berhasil. Makanan aman untuk dikonsumsi."    │    ║
+║ │ }                                                                  │    ║
+║ └────────────────────────┬───────────────────────────────────────────┘    ║
+║                          │                                                 ║
+║ STEP 10: Display Results (Frontend)                                        ║
+║ ┌────────────────────────▼───────────────────────────────────────────┐    ║
+║ │ Website Real-time Update:                                          │    ║
+║ │                                                                    │    ║
+║ │ ┌─────────────────────────────────────────────────────┐            │    ║
+║ │ │ 🥩 FRESH GUARD PREDICTION DASHBOARD               │            │    ║
+║ │ ├─────────────────────────────────────────────────────┤            │    ║
+║ │ │ Status: ✅ SAFE                                     │            │    ║
+║ │ │ Temperature: 27.45 °C                              │            │    ║
+║ │ │ Humidity: 68.20 %RH                                │            │    ║
+║ │ │ Air Quality (MQ-135): 125.40 ppm                   │            │    ║
+║ │ ├─────────────────────────────────────────────────────┤            │    ║
+║ │ │ TVC (Bacteria): 3.2 log₁₀ CFU/g                     │            │    ║
+║ │ │ Shelf Life: 1440 minutes (24 hours) ⏱️              │            │    ║
+║ │ ├─────────────────────────────────────────────────────┤            │    ║
+║ │ │ [📊 Charts] [🔄 Refresh] [📥 Export]               │            │    ║
+║ │ └─────────────────────────────────────────────────────┘            │    ║
+║ └────────────────────────────────────────────────────────────────────┘    ║
+╚════════════════════════════════════════════════════════════════════════════╝
 ```
 
 ### 10.1 Detail Header HTTP yang Dikirim ESP32
@@ -584,6 +751,606 @@ Prefer:        return=minimal
 - **HTTP 204 No Content** → data berhasil disimpan (dengan `Prefer: return=minimal`)
 - **HTTP 4xx** → masalah payload (cek format JSON)
 - **HTTP 401** → API key salah atau RLS policy belum dibuat
+
+---
+
+## 10.5 Protokol Komunikasi IoT & Networking (Simplified Direct HTTP)
+
+### Konsep Sederhana: Direct HTTP Calls
+
+```
+Frontend (localhost:3000)         Backend (localhost:8000)           ESP32 (192.168.43.120)
+       │                                  │                                  │
+       │  1. POST /predict                │                                  │
+       ├─────────────────────────────────▶│                                  │
+       │                                  │  3. GET /read-sensor              │
+       │                                  ├─────────────────────────────────▶│
+       │                                  │                                  │
+       │                                  │  4. Response JSON (sensor data)  │
+       │                                  │◀─────────────────────────────────┤
+       │                                  │                                  │
+       │                                  │  (5. Run ML Model)              │
+       │                                  │                                  │
+       │  6. Response JSON (prediction)   │                                  │
+       │◀─────────────────────────────────┤                                  │
+       │                                  │                                  │
+       │  7. Display Results              │                                  │
+       ├─────────────────────────┐        │                                  │
+       │                         │        │                                  │
+       v                         v        │                                  │
+   [Chart + Metrics]                      │                                  │
+```
+
+### Setup Koneksi
+
+**Prasyarat:**
+- Laptop (Frontend + Backend) dan ESP32 **terhubung ke Wi-Fi/Hotspot yang sama**
+- Bisa Wi-Fi rumah, hotspot mobile, atau router lab
+- **PENTING:** Gunakan Wi-Fi 2.4 GHz (ESP32 tidak support 5 GHz)
+
+**Contoh Network Setup:**
+```
+Wi-Fi Router (192.168.43.0/24) atau Hotspot
+    │
+    ├─ Laptop      : 192.168.43.100
+    │  - Frontend  : http://localhost:3000
+    │  - Backend   : http://localhost:8000
+    │
+    └─ ESP32       : 192.168.43.120
+       - Endpoint  : http://192.168.43.120/read-sensor
+```
+
+**Langkah Setup:**
+1. Hubungkan laptop ke Wi-Fi
+2. Hubungkan ESP32 ke Wi-Fi yang SAMA
+3. Catat IP address ESP32 (lihat di Serial Monitor atau router config)
+4. Update IP di backend code
+
+### 10.5.1 Kode ESP32: Mini Web Server
+
+Modifikasi ESP32 untuk act as a mini HTTP server dengan endpoint `/read-sensor`:
+
+```cpp
+// File: FreshGuard_ESP32.ino
+// ==========================================
+// SECTION: ESP32 sebagai Web Server
+// ==========================================
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ArduinoJson.h>
+
+// Wi-Fi Credentials
+const char* WIFI_SSID = "NamaWiFi";           // ← Edit
+const char* WIFI_PASSWORD = "PasswordWiFi";   // ← Edit
+
+// Web Server di port 80 (default HTTP)
+WebServer server(80);
+
+// ==========================================
+// SETUP: Inisialisasi Web Server
+// ==========================================
+void setupWebServer() {
+  // Define endpoint: GET /read-sensor
+  server.on("/read-sensor", HTTP_GET, handleReadSensor);
+  
+  // Define endpoint: GET /status (optional, untuk debug)
+  server.on("/status", HTTP_GET, handleStatus);
+  
+  // Fallback untuk undefined endpoints
+  server.onNotFound([]() {
+    server.send(404, "application/json", "{\"error\": \"Endpoint not found\"}");
+  });
+
+  server.begin();
+  Serial.println("[WEB] Server started on http://" + WiFi.localIP().toString() + "/read-sensor");
+}
+
+// ==========================================
+// HANDLER: GET /read-sensor
+// ==========================================
+void handleReadSensor() {
+  Serial.println("[HTTP] GET /read-sensor request received");
+
+  // Baca sensor BME280
+  float temp = bme.readTemperature();
+  float humidity = bme.readHumidity();
+  float pressure = bme.readPressure() / 100.0F;
+
+  // Baca MQ-135 (analog)
+  int adc = analogRead(PIN_MQ135_AO);
+  float vout = (adc / 4095.0f) * 3.3f;
+  float Rs = ((3.3f - vout) / vout) * MQ135_R_LOAD;
+  float ppm = MQ135_RO_CLEAN * (3.6 / Rs);
+
+  // Baca MQ-135 (digital alarm)
+  bool do_alarm = digitalRead(PIN_MQ135_DO) == LOW;
+
+  // Format JSON response
+  StaticJsonDocument<512> doc;
+  doc["temperature"] = temp;
+  doc["humidity"] = humidity;
+  doc["pressure"] = pressure;
+  doc["mq_135_ppm"] = ppm;
+  doc["mq_135_alarm"] = do_alarm;
+  doc["mq_136_ppm"] = 5.0;  // Static placeholder
+  doc["timestamp"] = millis();
+
+  // Convert to string
+  String response;
+  serializeJson(doc, response);
+
+  // Send response
+  server.send(200, "application/json", response);
+  Serial.println("[HTTP] Response sent: " + response);
+
+  // Update OLED to show data was read
+  updateOLEDReadingState();
+}
+
+// ==========================================
+// HANDLER: GET /status (Optional Debug)
+// ==========================================
+void handleStatus() {
+  Serial.println("[HTTP] GET /status request received");
+
+  StaticJsonDocument<256> doc;
+  doc["device"] = "ESP32-FreshGuard";
+  doc["version"] = "1.0";
+  doc["wifi_ssid"] = WiFi.SSID();
+  doc["wifi_ip"] = WiFi.localIP().toString();
+  doc["wifi_signal_strength"] = WiFi.RSSI();
+  doc["uptime_ms"] = millis();
+  doc["bme280_ok"] = bme_initialized;
+  doc["mq135_ok"] = true;
+
+  String response;
+  serializeJson(doc, response);
+
+  server.send(200, "application/json", response);
+}
+
+// ==========================================
+// SETUP WIFI
+// ==========================================
+void setupWiFi() {
+  Serial.println("[WiFi] Connecting to: " + String(WIFI_SSID));
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n[WiFi] Connected!");
+    Serial.println("[WiFi] IP Address: " + WiFi.localIP().toString());
+    Serial.println("[WiFi] Gateway: " + WiFi.gatewayIP().toString());
+    Serial.println("[WiFi] Subnet: " + WiFi.subnetMask().toString());
+  } else {
+    Serial.println("\n[WiFi] Connection FAILED!");
+    // Blink LED merah 5x
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(PIN_LED_RED, HIGH);
+      delay(200);
+      digitalWrite(PIN_LED_RED, LOW);
+      delay(200);
+    }
+  }
+}
+
+// ==========================================
+// MAIN LOOP: Handle HTTP Requests
+// ==========================================
+void loop() {
+  // PENTING: Handle incoming HTTP requests
+  server.handleClient();
+
+  // Existing sensor reading + LED update code
+  // ... (keep original loop code)
+
+  delay(100);
+}
+
+// ==========================================
+// UPDATE SETUP() FUNCTION
+// ==========================================
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println("\n[FreshGuard] Booting...");
+
+  // Initialize pins
+  pinMode(PIN_LED_GREEN, OUTPUT);
+  pinMode(PIN_LED_YELLOW, OUTPUT);
+  pinMode(PIN_LED_RED, OUTPUT);
+  pinMode(PIN_MQ135_DO, INPUT);
+
+  // Initialize sensors
+  // ... (keep existing init code)
+
+  // NEW: Setup WiFi & Web Server
+  setupWiFi();
+  setupWebServer();
+
+  Serial.println("[FreshGuard] Setup complete!");
+}
+```
+
+### 10.5.2 Kode Backend: Direct HTTP Calls ke ESP32
+
+Backend Node.js dengan endpoint `/predict`:
+
+```javascript
+// File: backend/src/routes/predictRoutes.js
+// atau backend/src/index.js (jika tidak pakai routing terpisah)
+
+const express = require('express');
+const axios = require('axios');  // npm install axios
+const { spawn } = require('child_process');
+
+const router = express.Router();
+
+// ==========================================
+// CONFIGURATION
+// ==========================================
+const ESP32_IP = process.env.ESP32_IP || '192.168.43.120';  // ← Edit sesuai IP ESP32
+const ESP32_ENDPOINT = `http://${ESP32_IP}/read-sensor`;
+const ESP32_TIMEOUT_MS = 5000;  // 5 detik timeout
+
+console.log(`[CONFIG] ESP32 endpoint: ${ESP32_ENDPOINT}`);
+
+// ==========================================
+// ENDPOINT: POST /predict
+// ==========================================
+router.post('/predict', async (req, res) => {
+  try {
+    console.log('[PREDICT] Request received from frontend');
+
+    // STEP 1: Fetch sensor data dari ESP32
+    console.log(`[ESP32] Fetching data from: ${ESP32_ENDPOINT}`);
+    
+    let sensorData;
+    try {
+      const response = await axios.get(ESP32_ENDPOINT, {
+        timeout: ESP32_TIMEOUT_MS
+      });
+      sensorData = response.data;
+      console.log('[ESP32] Data received:', sensorData);
+    } catch (error) {
+      console.error('[ESP32] Connection error:', error.message);
+      return res.status(503).json({
+        success: false,
+        error: 'ESP32 tidak dapat dihubungi',
+        details: error.message
+      });
+    }
+
+    // STEP 2: Validate sensor data
+    if (!sensorData.temperature || sensorData.temperature === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid sensor data from ESP32'
+      });
+    }
+
+    // STEP 3: Invoke Python ML Model
+    console.log('[ML] Invoking prediction model...');
+    
+    const prediction = await invokePythonModel(sensorData);
+
+    console.log('[ML] Prediction result:', prediction);
+
+    // STEP 4: Return hasil ke frontend
+    return res.json({
+      success: true,
+      data: {
+        // Sensor readings
+        temperature: sensorData.temperature,
+        humidity: sensorData.humidity,
+        pressure: sensorData.pressure,
+        mq_135: sensorData.mq_135_ppm,
+        mq_136: sensorData.mq_136_ppm,
+        
+        // Prediction results
+        tvc: prediction.tvc,
+        rsl_minutes: prediction.rsl_minutes,
+        class: prediction.class,
+        class_label: getClassLabel(prediction.class),
+        
+        // Metadata
+        timestamp: new Date().toISOString(),
+        esp32_timestamp: sensorData.timestamp
+      },
+      message: 'Prediksi berhasil'
+    });
+
+  } catch (error) {
+    console.error('[PREDICT] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ==========================================
+// HELPER: Invoke Python ML Model
+// ==========================================
+function invokePythonModel(sensorData) {
+  return new Promise((resolve, reject) => {
+    // Prepare input features
+    const features = [
+      sensorData.temperature,
+      sensorData.humidity,
+      sensorData.mq_135_ppm,
+      sensorData.pressure || 1013.25
+    ];
+
+    // Spawn Python process
+    const python = spawn('python', [
+      './ai/predict.py',
+      ...features.map(f => f.toString())
+    ]);
+
+    let output = '';
+    let errorOutput = '';
+
+    python.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    python.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+
+    python.on('close', (code) => {
+      if (code === 0) {
+        try {
+          // Parse JSON output from Python
+          const result = JSON.parse(output);
+          
+          // Validate output
+          if (!result.tvc || result.rsl_minutes === undefined || result.class === undefined) {
+            reject(new Error('Invalid model output format'));
+            return;
+          }
+
+          resolve(result);
+        } catch (e) {
+          console.error('[ML] Parse error:', e.message);
+          console.error('[ML] Python output:', output);
+          reject(new Error('Invalid model output: ' + e.message));
+        }
+      } else {
+        console.error('[ML] Python error:', errorOutput);
+        reject(new Error('Python model execution failed: ' + errorOutput));
+      }
+    });
+
+    // Set timeout untuk Python execution
+    setTimeout(() => {
+      python.kill();
+      reject(new Error('Python model timeout (>10s)'));
+    }, 10000);
+  });
+}
+
+// ==========================================
+// HELPER: Format class label
+// ==========================================
+function getClassLabel(classValue) {
+  const labels = {
+    0: 'Safe ✅',
+    1: 'Warning ⚠️',
+    2: 'Danger 🔴'
+  };
+  return labels[classValue] || 'Unknown';
+}
+
+module.exports = router;
+```
+
+**Setup Backend:**
+```bash
+cd backend
+
+# Install axios jika belum
+npm install axios
+
+# Edit .env untuk set ESP32_IP
+echo "ESP32_IP=192.168.43.120" >> .env
+
+# Run backend
+npm run dev  # port 8000
+```
+
+### 10.5.3 Kode Frontend: Call Backend
+
+Frontend React/Vite button untuk trigger prediction:
+
+```jsx
+// File: frontend/src/components/PredictionForm.jsx
+
+import { useState } from 'react';
+
+export default function PredictionForm() {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const handlePredict = async () => {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      // POST ke backend (localhost:8000)
+      const response = await fetch('http://localhost:8000/api/food/predict', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),  // Bisa kosong atau add params
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        setResult(data.data);
+        console.log('[RESULT]', data.data);
+      } else {
+        setError(data.error || 'Prediction failed');
+      }
+    } catch (err) {
+      console.error('[ERROR]', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="prediction-form">
+      <button 
+        onClick={handlePredict} 
+        disabled={loading}
+        className="btn-predict"
+      >
+        {loading ? 'Predicting...' : 'Predict'}
+      </button>
+
+      {loading && <p>Fetching data from ESP32 dan running model...</p>}
+
+      {error && <div className="error">{error}</div>}
+
+      {result && (
+        <div className="result-box">
+          <h3>✅ Prediksi Berhasil!</h3>
+          
+          <section className="sensor-readings">
+            <h4>📊 Sensor Data</h4>
+            <p>Temperature: <strong>{result.temperature.toFixed(2)}°C</strong></p>
+            <p>Humidity: <strong>{result.humidity.toFixed(2)}%</strong></p>
+            <p>Air Quality (MQ-135): <strong>{result.mq_135.toFixed(2)} ppm</strong></p>
+            <p>Pressure: <strong>{result.pressure.toFixed(2)} hPa</strong></p>
+          </section>
+
+          <section className="predictions">
+            <h4>🔮 Prediction Results</h4>
+            <div className={`status ${result.class === 0 ? 'safe' : result.class === 1 ? 'warning' : 'danger'}`}>
+              Status: <strong>{result.class_label}</strong>
+            </div>
+            <p>TVC: <strong>{result.tvc.toFixed(2)} log₁₀ CFU/g</strong></p>
+            <p>Shelf Life: <strong>{result.rsl_minutes} minutes ({(result.rsl_minutes / 60).toFixed(1)} hours)</strong></p>
+          </section>
+
+          <p className="timestamp">
+            Recorded: {new Date(result.timestamp).toLocaleString()}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 10.5.4 Testing & Debugging
+
+**Test 1: Check ESP32 connectivity**
+```bash
+# Di terminal/command prompt, test endpoint ESP32
+curl http://192.168.43.120/read-sensor
+
+# Expected response:
+# {
+#   "temperature": 27.45,
+#   "humidity": 68.20,
+#   "pressure": 1013.25,
+#   "mq_135_ppm": 125.40,
+#   ...
+# }
+```
+
+**Test 2: Check Backend connectivity ke ESP32**
+```bash
+# Run di laptop, test dari backend perspective
+node -e "
+const axios = require('axios');
+axios.get('http://192.168.43.120/read-sensor')
+  .then(r => console.log(r.data))
+  .catch(e => console.error(e.message))
+"
+```
+
+**Test 3: Full flow test**
+```bash
+# 1. Pastikan ESP32 online
+curl http://192.168.43.120/status
+
+# 2. Run backend
+cd backend && npm run dev
+
+# 3. Buka browser
+open http://localhost:3000
+
+# 4. Klik button "Predict"
+# Check console untuk error messages
+```
+
+**Common Issues:**
+
+| Error | Solusi |
+|-------|--------|
+| `Cannot reach ESP32` | - Cek IP address (lihat Serial Monitor ESP32)<br>- Pastikan laptop + ESP32 di Wi-Fi sama<br>- Cek firewall |
+| `JSON parse error` | - Cek output ESP32 di `/read-sensor`<br>- Pastikan response valid JSON |
+| `Python model error` | - Test Python script manual: `python ai/predict.py 27.45 68.2 125.4`<br>- Pastikan model file ada di `ai/models/` |
+| `CORS error` | - Backend harus run di port 8000<br>- Frontend harus allow POST ke localhost:8000 |
+
+### 10.5.5 Network Diagram (Simplified)
+
+```
+┌──────────────────────────────────────────────┐
+│            Wi-Fi Network (2.4 GHz)           │
+│         Router / Hotspot                     │
+├──────────────────────────────────────────────┤
+│                                              │
+│  192.168.43.100 (Laptop)                     │
+│  ┌────────────────────────────────┐          │
+│  │ Frontend (localhost:3000)      │          │
+│  │ ├─ React/Vite                  │          │
+│  │ └─ Button: "Predict"           │          │
+│  └────────────┬────────────────────┘          │
+│               │ HTTP POST /predict            │
+│               ▼                               │
+│  ┌────────────────────────────────┐          │
+│  │ Backend (localhost:8000)       │          │
+│  │ ├─ Node.js Express             │          │
+│  │ ├─ Python ML Model             │          │
+│  │ └─ axios (HTTP client)         │          │
+│  └────────────┬────────────────────┘          │
+│               │ HTTP GET /read-sensor         │
+│               ▼                               │
+│  192.168.43.120 (ESP32)                      │
+│  ┌────────────────────────────────┐          │
+│  │ Web Server (port 80)           │          │
+│  │ ├─ GET /read-sensor            │          │
+│  │ ├─ GET /status                 │          │
+│  │ ├─ BME280 sensor (I2C)         │          │
+│  │ ├─ MQ-135 sensor (ADC)         │          │
+│  │ └─ OLED Display + LEDs         │          │
+│  └────────────────────────────────┘          │
+│                                              │
+└──────────────────────────────────────────────┘
+```
 
 ---
 
