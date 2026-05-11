@@ -9,6 +9,7 @@ Copy `.env.example` to `.env` and fill in:
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY` (read/write via RLS) or `SUPABASE_SERVICE_ROLE_KEY` (admin)
 - `PORT` (optional)
+- `FRONTEND_URL` or `FRONTEND_URLS` for CORS allowlist
 
 ## Supabase tables
 
@@ -27,6 +28,15 @@ Paste the output into the SQL editor.
 - `POST /api/tvc`
 - `GET /api/predict?limit=50`
 - `POST /api/predict`
+
+## CORS
+
+If the frontend is deployed on a different domain, set `FRONTEND_URL` or `FRONTEND_URLS` in the backend environment.
+
+Examples:
+
+- `FRONTEND_URL=https://your-frontend.example`
+- `FRONTEND_URLS=http://localhost:5173,https://your-frontend.example`
 
 ## Notes
 

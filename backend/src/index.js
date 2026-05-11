@@ -8,9 +8,21 @@ dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3001;
+const allowedOrigins = new Set(
+  [process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? "http://localhost:5173"]
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean)
+);
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has("*") || allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));

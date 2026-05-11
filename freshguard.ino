@@ -54,7 +54,7 @@ const char* WIFI_SSID     = "Gak Tau";
 const char* WIFI_PASSWORD = "12345678";
 
 // Backend API
-const char* BACKEND_URL = "https://rekstifreshguard-production.up.railway.app";
+const char* BACKEND_URL = "http://192.168.43.100:3001";  // Ganti ke IP laptop/PC yang menjalankan backend
 
 // ── Pin Assignments ───────────────────────────────────────────────────────────
 
