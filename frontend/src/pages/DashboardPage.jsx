@@ -211,7 +211,7 @@ function DashboardPage() {
                   <div>
                     <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Class</p>
                     <p className="text-xl font-semibold text-[var(--text-strong)]">
-                      {formatNumber(foodRecord?.tvc)}
+                        {freshnessLabel}
                     </p>
                   </div>
                   <div>

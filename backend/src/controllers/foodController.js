@@ -54,6 +54,23 @@ export const createFoodRecord = async (req, res) => {
   }
 
   const payload = parseResult.data;
+  let result;
+
+  try {
+    result = await runPython({
+      mq135: payload.mq_135,
+      mq136: payload.mq_136,
+      temperature: payload.temperature,
+      humidity: payload.humidity
+    });
+
+    if (!result?.ok) {
+      return res.status(500).json({ error: result?.error || "Prediction failed" });
+    }
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
   const record = {
     mq_135: payload.mq_135,
     mq_136: payload.mq_136,
@@ -62,9 +79,9 @@ export const createFoodRecord = async (req, res) => {
     h2s: payload.h2s ?? null,
     voc: payload.voc ?? null,
     amonia: payload.amonia ?? null,
-    tvc: 0.0,
-    rsl_minutes: 0.0,
-    class: 1
+    tvc: result.data.tvc ?? result.data.class,
+    rsl_minutes: result.data.rsl_minutes,
+    class: result.data.class + 1
   };
 
   const { data, error } = await supabase
@@ -78,34 +95,6 @@ export const createFoodRecord = async (req, res) => {
   }
 
   let updatedRecord = data;
-
-  try {
-    const result = await runPython({
-      mq135: payload.mq_135,
-      mq136: payload.mq_136,
-      temperature: payload.temperature,
-      humidity: payload.humidity
-    });
-
-    if (result?.ok) {
-      const { data: prediction, error: updateError } = await supabase
-        .from("kondisi_makanan")
-        .update({
-          tvc: result.data.tvc ?? result.data.class,
-          rsl_minutes: result.data.rsl_minutes,
-          class: result.data.class + 1
-        })
-        .eq("id", data.id)
-        .select("*")
-        .single();
-
-      if (!updateError && prediction) {
-        updatedRecord = prediction;
-      }
-    }
-  } catch (error) {
-    // Prediction is best-effort to keep ingestion fast.
-  }
 
   // Resolve any frontend long-poll waiting for this result
   if (pendingPredictResolve) {
