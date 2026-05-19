@@ -36,9 +36,9 @@ function Sidebar({ active }) {
         ))}
       </nav>
 
-      <div className="mt-auto rounded-2xl bg-white/70 p-4 text-xs text-[var(--muted)] shadow-soft">
+      {/* <div className="mt-auto rounded-2xl bg-white/70 p-4 text-xs text-[var(--muted)] shadow-soft">
         <p>Prediction history is isolated per user account.</p>
-      </div>
+      </div> */}
     </aside>
   );
 }
