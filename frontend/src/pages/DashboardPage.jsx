@@ -18,6 +18,7 @@ const formatTimeAgo = (value) => {
     return "never";
   }
 
+<<<<<<< HEAD
   const timestamp = new Date(value).getTime();
   const deltaSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
 
@@ -32,6 +33,8 @@ const formatTimeAgo = (value) => {
   return `${Math.floor(deltaSeconds / 3600)}h ago`;
 };
 
+=======
+>>>>>>> parent of 0c17cef (feat: iot fix)
 function DashboardPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -172,8 +175,57 @@ function DashboardPage() {
                 </div>
               </div>
             </div>
+<<<<<<< HEAD
           </>
         ) : null}
+=======
+          </div>
+
+            <div className="grid gap-6 md:grid-cols-2">
+            <MetricCard
+                title="Temperature"
+                value={formatNumber(foodRecord?.temperature)}
+                unit="C"
+            />
+            <MetricCard
+                title="Humidity"
+                value={formatNumber(foodRecord?.humidity)}
+                unit="%"
+            />
+          </div>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <MetricCard
+                title="MQ-135"
+                value={formatNumber(foodRecord?.mq_135)}
+                unit="ppm"
+              />
+              <MetricCard
+                title="MQ-136"
+                value={formatNumber(foodRecord?.mq_136)}
+                unit="ppm"
+              />
+            </div>
+
+          <PredictionForm
+            onSubmit={handleManualSubmit}
+            isLoading={manualLoading}
+            errorMessage={manualError}
+          />
+
+          {manualInput ? (
+            <div className="rounded-3xl bg-white/80 p-6 text-sm text-[var(--muted)] shadow-soft">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Last input</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <span>MQ-135: {manualInput.mq135 || "-"}</span>
+                <span>MQ-136: {manualInput.mq136 || "-"}</span>
+                <span>Temperature: {manualInput.temperature || "-"}</span>
+                <span>Humidity: {manualInput.humidity || "-"}</span>
+              </div>
+            </div>
+          ) : null}
+        </div>
+>>>>>>> parent of 0c17cef (feat: iot fix)
       </div>
     </PageShell>
   );
