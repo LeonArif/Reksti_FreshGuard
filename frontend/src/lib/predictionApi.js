@@ -5,7 +5,7 @@ const isLocalHost = typeof window !== "undefined"
 
 export const apiBase = isLocalHost
   ? "http://localhost:3001"
-  : (import.meta.env.VITE_API_BASE || "http://localhost:3001");
+  : (import.meta.env.VITE_API_BASE || "https://rekstifreshguard-production-dfd5.up.railway.app");
 
 export const getCurrentUser = async () => {
   const { data } = await supabase.auth.getUser();
