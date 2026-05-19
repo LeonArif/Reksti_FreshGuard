@@ -17,9 +17,18 @@ const allowedOrigins = new Set(
     .filter(Boolean)
 );
 
+const isLocalDevOrigin = (origin) => {
+  try {
+    const { protocol, hostname } = new URL(origin);
+    return (protocol === "http:" || protocol === "https:") && (hostname === "localhost" || hostname === "127.0.0.1");
+  } catch (_error) {
+    return false;
+  }
+};
+
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.has("*") || allowedOrigins.has(origin)) {
+    if (!origin || allowedOrigins.has("*") || allowedOrigins.has(origin) || isLocalDevOrigin(origin)) {
       return callback(null, true);
     }
 
