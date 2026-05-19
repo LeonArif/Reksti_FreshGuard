@@ -24,18 +24,6 @@ const ingestSchema = z.object({
   amonia: optionalNumber
 });
 
-/**
- * Scale MQ-135 ADC (0-4095) to dataset range (0-547).
- * Dataset was trained with sensor readings in 0-547 range.
- * Linear scaling: scaled = (adc / 4095) * 547
- */
-const scaleMQ135ADC = (adc) => {
-  const MIN_RANGE = 0;
-  const MAX_RANGE = 547;
-  const ADC_MAX = 4095;
-  return Math.max(MIN_RANGE, Math.min(MAX_RANGE, (adc / ADC_MAX) * MAX_RANGE));
-};
-
 const normalizeFoodRecord = (record) => {
   if (!record) {
     return record;
@@ -77,12 +65,9 @@ export const createFoodRecord = async (req, res) => {
   const payload = parseResult.data;
   let result;
 
-  // Scale MQ-135 ADC to model training range
-  const mq135_scaled = scaleMQ135ADC(payload.mq_135);
-
   try {
     result = await runPython({
-      mq135: mq135_scaled,  // Send scaled value to model
+      mq135: payload.mq_135,
       mq136: payload.mq_136,
       temperature: payload.temperature,
       humidity: payload.humidity
@@ -96,7 +81,7 @@ export const createFoodRecord = async (req, res) => {
   }
 
   const record = {
-    mq_135: payload.mq_135,  // Store raw ADC for reference
+    mq_135: payload.mq_135,
     mq_136: payload.mq_136,
     temperature: payload.temperature,
     humidity: payload.humidity,
