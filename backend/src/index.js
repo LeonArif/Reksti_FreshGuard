@@ -11,7 +11,7 @@ const app = express();
 const port = process.env.PORT || 3001;
 const allowedOrigins = new Set(
   // [process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? "http://localhost:5173"]
-  ["http://localhost:5173"]
+  [process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? "http://localhost:5173"]
     .flatMap((value) => value.split(","))
     .map((value) => value.trim())
     .filter(Boolean)
