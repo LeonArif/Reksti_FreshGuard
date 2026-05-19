@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
@@ -32,13 +32,27 @@ const __dirname = path.dirname(__filename);
 const scriptPath = path.resolve(__dirname, "..", "..", "ai", "predict.py");
 
 export const runPython = async (payload) => {
-  const candidates = Array.from(new Set([
-    process.env.PYTHON_PATH,
-    process.env.PYTHON,
-    "python",
-    "python3",
-    "py"
-  ].filter(Boolean)));
+  const baseCandidates = [process.env.PYTHON_PATH, process.env.PYTHON, "python", "python3", "py"].filter(Boolean);
+
+  // Try to resolve an absolute path to python using platform tools (where/which)
+  const resolved = [];
+  try {
+    if (process.platform === "win32") {
+      const out = execSync("where python", { stdio: ["pipe", "pipe", "ignore"] }).toString().trim();
+      if (out) {
+        out.split(/\r?\n/).forEach((p) => resolved.push(p.trim()));
+      }
+    } else {
+      const out = execSync("which python || which python3", { stdio: ["pipe", "pipe", "ignore"] }).toString().trim();
+      if (out) {
+        out.split(/\r?\n/).forEach((p) => resolved.push(p.trim()));
+      }
+    }
+  } catch (_err) {
+    // ignore resolution errors
+  }
+
+  const candidates = Array.from(new Set([...resolved, ...baseCandidates]));
 
   let lastError = null;
 
