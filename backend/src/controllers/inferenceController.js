@@ -59,9 +59,15 @@ export const runPython = async (payload) => {
   for (const cmd of candidates) {
     // eslint-disable-next-line no-await-in-loop
     const attempt = await new Promise((resolve) => {
-      const child = spawn(cmd, [scriptPath], {
-        stdio: ["pipe", "pipe", "pipe"]
-      });
+      let child;
+      try {
+        child = spawn(cmd, [scriptPath], {
+          stdio: ["pipe", "pipe", "pipe"]
+        });
+      } catch (spawnErr) {
+        // spawn may throw synchronously on some platforms; return as error
+        return resolve({ ok: false, error: spawnErr });
+      }
 
       let stdout = "";
       let stderr = "";
@@ -99,8 +105,61 @@ export const runPython = async (payload) => {
       return attempt.data;
     }
 
+    // If spawn failed due to ENOENT, try again using the shell which helps
+    // resolve Windows App Execution Aliases or PATH shims.
+    if (attempt.error && attempt.error.code === "ENOENT") {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const shellAttempt = await new Promise((resolve) => {
+          const shellChild = spawn(cmd, [scriptPath], {
+            stdio: ["pipe", "pipe", "pipe"],
+            shell: true
+          });
+
+          let stdout = "";
+          let stderr = "";
+
+          shellChild.stdout.on("data", (chunk) => {
+            stdout += chunk.toString();
+          });
+
+          shellChild.stderr.on("data", (chunk) => {
+            stderr += chunk.toString();
+          });
+
+          shellChild.on("error", (error) => resolve({ ok: false, error }));
+          shellChild.on("close", (code) => {
+            if (code !== 0 && stderr) return resolve({ ok: false, error: new Error(stderr.trim()) });
+            try {
+              const parsed = JSON.parse(stdout);
+              return resolve({ ok: true, data: parsed });
+            } catch (error) {
+              return resolve({ ok: false, error });
+            }
+          });
+
+          shellChild.stdin.write(JSON.stringify(payload));
+          shellChild.stdin.end();
+        });
+
+        if (shellAttempt.ok) {
+          return shellAttempt.data;
+        }
+
+        lastError = shellAttempt.error instanceof Error ? shellAttempt.error : new Error(String(shellAttempt.error));
+        // continue to next candidate
+        // eslint-disable-next-line no-empty
+      } catch (_e) {}
+    }
+
     lastError = attempt.error instanceof Error ? attempt.error : new Error(String(attempt.error));
   }
+
+  // Log helpful debug info for server logs before throwing
+  try {
+    console.error("runPython: tried python candidates:", candidates);
+    if (lastError) console.error("runPython: last error:", lastError && lastError.message ? lastError.message : String(lastError));
+  } catch (_e) {}
 
   throw lastError ?? new Error("No python executable available");
 };
