@@ -5,7 +5,7 @@ import TopBar from "./TopBar.jsx";
 function PageShell({ active, statusLabel, lastUpdatedLabel, userEmail, onSignOut, children }) {
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      <div className="mx-auto grid max-w-6xl gap-8 px-6 py-8 lg:grid-cols-[240px,1fr]">
+      <div className="mx-auto grid w-full max-w-7xl gap-8 px-6 py-8 lg:grid-cols-[240px,1fr]">
         <Sidebar active={active} />
 
         <div className="flex flex-col gap-6">

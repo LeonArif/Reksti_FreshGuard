@@ -79,16 +79,6 @@ function PredictPage() {
           </button>
         </div>
 
-        <div className="mt-6 rounded-3xl bg-[var(--accent-soft)]/70 p-5 text-sm text-[var(--text-strong)]">
-          <p className="font-semibold">What happens next</p>
-          <ul className="mt-3 space-y-2 text-[var(--muted)]">
-            <li>1. Device diminta mengirim data sensor terbaru.</li>
-            <li>2. Backend menghitung hasil prediksi.</li>
-            <li>3. Hasil disimpan untuk akun yang sedang login.</li>
-            <li>4. Dashboard dan History menampilkan data yang sama untuk akun ini.</li>
-          </ul>
-        </div>
-
         {message ? <p className="mt-4 text-sm text-[var(--muted)]">{message}</p> : null}
       </div>
     </PageShell>

@@ -35,7 +35,7 @@ function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      <div className="relative mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6 py-16">
+      <div className="relative mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-6 py-16">
         <div className="absolute inset-0 -z-10">
           <div className="absolute left-1/3 top-10 h-40 w-40 rounded-full bg-[var(--accent-soft)] blur-3xl" />
           <div className="absolute right-1/4 bottom-16 h-56 w-56 rounded-full bg-[var(--glow)] blur-3xl" />
