@@ -26,18 +26,9 @@ const isLocalDevOrigin = (origin) => {
   }
 };
 
-const isVercelOrigin = (origin) => {
-  try {
-    const { protocol, hostname } = new URL(origin);
-    return protocol === "https:" && hostname.endsWith(".vercel.app");
-  } catch (_error) {
-    return false;
-  }
-};
-
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.has("*") || allowedOrigins.has(origin) || isLocalDevOrigin(origin) || isVercelOrigin(origin)) {
+    if (!origin || allowedOrigins.has("*") || allowedOrigins.has(origin) || isLocalDevOrigin(origin)) {
       return callback(null, true);
     }
 
