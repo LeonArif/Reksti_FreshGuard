@@ -116,8 +116,8 @@ function HistoryPage() {
                     <th className="px-6 py-4">RSL</th>
                     <th className="px-6 py-4">Temp</th>
                     <th className="px-6 py-4">Humidity</th>
-                    <th className="px-6 py-4">MQ-135</th>
-                    <th className="px-6 py-4">MQ-136</th>
+                    <th className="px-6 py-4">MQ-135 (ADC)</th>
+                    <th className="px-6 py-4">MQ-136 (ADC)</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm text-[var(--text-strong)]">

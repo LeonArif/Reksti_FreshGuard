@@ -10,6 +10,7 @@ function PredictPage() {
   const [isPredicting, setIsPredicting] = useState(false);
   const [message, setMessage] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const [latestPrediction, setLatestPrediction] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -35,10 +36,14 @@ function PredictPage() {
 
     try {
       const response = await authedJson("/api/food/predict", { method: "POST" });
-      setMessage("Prediksi berhasil disimpan. Mengarahkan ke dashboard...");
-      navigate("/dashboard", { state: { latestPrediction: response?.data ?? null } });
+      setLatestPrediction(response?.data ?? null);
+      setMessage("Prediksi berhasil disimpan.");
     } catch (error) {
-      setMessage(error.message);
+      if (error.message?.includes("ESP32")) {
+        setMessage("Timeout 15 detik. Perangkat belum merespons.");
+      } else {
+        setMessage(error.message);
+      }
     } finally {
       setIsPredicting(false);
     }
@@ -68,13 +73,42 @@ function PredictPage() {
         body: JSON.stringify(payload)
       });
 
-      setMessage("Prediksi manual berhasil disimpan. Mengarahkan ke dashboard...");
-      navigate("/dashboard", { state: { latestPrediction: response?.data ?? null } });
+      setLatestPrediction(response?.data ?? null);
+      setMessage("Prediksi manual berhasil disimpan.");
     } catch (error) {
       setMessage(error.message);
     } finally {
       setIsManualSubmitting(false);
     }
+  };
+
+  const formatNumber = (value, digits = 2) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+      return "-";
+    }
+
+    return Number(value).toFixed(digits);
+  };
+
+  const resolveClassName = (record) => {
+    if (!record) {
+      return "-";
+    }
+
+    if (record.class_name) {
+      return record.class_name;
+    }
+
+    const classValue = Number(record.class);
+    if (classValue === 0 || classValue === 1 || classValue === 2) {
+      return classValue === 0 ? "Safe" : classValue === 1 ? "Warning" : "Danger";
+    }
+
+    if (classValue === 1 || classValue === 2 || classValue === 3) {
+      return classValue === 1 ? "Safe" : classValue === 2 ? "Warning" : "Danger";
+    }
+
+    return "-";
   };
 
   return (
@@ -185,6 +219,48 @@ function PredictPage() {
             </button>
           </div>
         </div>
+
+        {latestPrediction ? (
+          <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Prediction class</p>
+              <h2 className="mt-4 text-3xl font-semibold text-[var(--accent-strong)]">
+                {resolveClassName(latestPrediction)}
+              </h2>
+              <p className="mt-3 text-sm text-[var(--muted)]">Updated just now</p>
+            </div>
+            <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Temperature</p>
+              <p className="mt-4 text-3xl font-semibold text-[var(--text-strong)]">
+                {formatNumber(latestPrediction.temperature)} °C
+              </p>
+            </div>
+            <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Humidity</p>
+              <p className="mt-4 text-3xl font-semibold text-[var(--text-strong)]">
+                {formatNumber(latestPrediction.humidity)} %
+              </p>
+            </div>
+            <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">RSL</p>
+              <p className="mt-4 text-3xl font-semibold text-[var(--text-strong)]">
+                {formatNumber(latestPrediction.rsl_minutes)} minutes
+              </p>
+            </div>
+            <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">MQ-135</p>
+              <p className="mt-4 text-3xl font-semibold text-[var(--text-strong)]">
+                {formatNumber(latestPrediction.mq_135)} ADC
+              </p>
+            </div>
+            <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">MQ-136</p>
+              <p className="mt-4 text-3xl font-semibold text-[var(--text-strong)]">
+                {formatNumber(latestPrediction.mq_136)} ADC
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         {message ? <p className="mt-4 text-sm text-[var(--muted)]">{message}</p> : null}
       </div>

@@ -54,7 +54,7 @@ const char* WIFI_SSID     = "Gak Tau";
 const char* WIFI_PASSWORD = "12345678";
 
 // Backend API
-const char* BACKEND_URL = "http://192.168.43.100:3001";  // Ganti ke IP laptop/PC yang menjalankan backend
+const char* `BACKEND_URL = "http://192.168.1.18:3001";  // Ganti ke IP laptop/PC yang menjalankan backend
 
 // ── Pin Assignments ───────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ const int PIN_LED_YELLOW = 12;
 const int PIN_LED_RED    = 13;
 
 // ── MQ-136 Placeholder (H2S sensor not installed) ────────────────────────────
-const float MQ136_PLACEHOLDER_PPM = 5.0f;
+const float MQ136_PLACEHOLDER_PPM = 140.0f;  // Static value for testing (typical indoor H2S levels are 0.1-200 ppm)
 
 // ── Timing ────────────────────────────────────────────────────────────────────
 const unsigned long READ_INTERVAL_MS        = 10000UL;  // Read sensors every 10 s

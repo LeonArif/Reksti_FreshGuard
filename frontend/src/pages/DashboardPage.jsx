@@ -56,13 +56,13 @@ const LineChart = ({ title, values, unit }) => {
   const max = Math.max(...values);
   const range = max - min || 1;
 
-  const points = values
-    .map((value, index) => {
-      const x = padding + (index / Math.max(values.length - 1, 1)) * (width - padding * 2);
-      const y = height - padding - ((value - min) / range) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const pointData = values.map((value, index) => {
+    const x = padding + (index / Math.max(values.length - 1, 1)) * (width - padding * 2);
+    const y = height - padding - ((value - min) / range) * (height - padding * 2);
+    return { x, y };
+  });
+
+  const points = pointData.map((point) => `${point.x},${point.y}`).join(" ");
 
   const latest = values[values.length - 1];
 
@@ -84,14 +84,25 @@ const LineChart = ({ title, values, unit }) => {
       <div className="mt-4">
         <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full">
           <rect x="0" y="0" width={width} height={height} rx="18" fill="rgba(255,255,255,0.5)" />
-          <polyline
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth="3"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            points={points}
-          />
+          {points ? (
+            <polyline
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="3"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              points={points}
+            />
+          ) : null}
+          {pointData.map((point, index) => (
+            <circle
+              key={`point-${index}`}
+              cx={point.x}
+              cy={point.y}
+              r={pointData.length === 1 ? 5 : 3}
+              fill="var(--accent)"
+            />
+          ))}
         </svg>
       </div>
     </div>
