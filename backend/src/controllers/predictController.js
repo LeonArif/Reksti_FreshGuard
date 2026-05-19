@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { supabase } from "../db/supabaseClient.js";
+import { resolveAuthenticatedUser } from "../lib/auth.js";
+import { savePredictionHistory } from "../lib/predictionStore.js";
 
 const classProbabilitiesSchema = z.object({
   Safe: z.number(),
@@ -81,5 +83,33 @@ export const createPredictSample = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
-  return res.status(201).json({ data: data?.[0] ?? null });
+  const inserted = data?.[0] ?? null;
+
+  // If request is authenticated, also save a prediction_history record
+  try {
+    const user = await resolveAuthenticatedUser(req).catch(() => null);
+    if (user?.id && inserted) {
+      const prediction = {
+        class: inserted.freshness_label === "Safe" ? 0 : inserted.freshness_label === "Warning" ? 1 : 2,
+        class_name: inserted.freshness_label,
+        class_probabilities: {
+          Safe: Number(inserted.prob_safe ?? 0),
+          Warning: Number(inserted.prob_warning ?? 0),
+          Danger: Number(inserted.prob_danger ?? 0)
+        }
+      };
+
+      // savePredictionHistory expects record fields similar to kondisi_makanan/predict_samples
+      await savePredictionHistory({
+        userId: user.id,
+        source: "predict",
+        record: inserted,
+        prediction
+      }).catch((err) => console.error("Failed to save prediction history:", err));
+    }
+  } catch (err) {
+    console.error("Error resolving user or saving history:", err);
+  }
+
+  return res.status(201).json({ data: inserted });
 };

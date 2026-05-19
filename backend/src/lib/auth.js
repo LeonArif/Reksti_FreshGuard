@@ -33,11 +33,9 @@ export const resolveAuthenticatedUser = async (req) => {
     updated_at: new Date().toISOString()
   };
 
-  const { error: upsertError } = await supabase.from("users").upsert(profile, { onConflict: "id" });
-  if (upsertError) {
-    throw new Error(upsertError.message);
-  }
-
+  // Do not persist a separate `users` table. Use the auth user's id (auth.users.id)
+  // directly as the canonical user identifier. Return a small profile object
+  // derived from the auth provider without writing to any public tables.
   return {
     id: authUser.id,
     email: authUser.email ?? "",

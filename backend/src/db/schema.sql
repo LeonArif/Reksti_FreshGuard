@@ -13,18 +13,9 @@ create table if not exists public.kondisi_makanan (
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.users (
-  id uuid primary key references auth.users(id) on delete cascade,
-  email text not null unique,
-  name text,
-  avatar_url text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
 create table if not exists public.prediction_history (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
   source text not null default 'device',
   mq_135 numeric not null,
   mq_136 numeric not null,
