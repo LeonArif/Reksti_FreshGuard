@@ -93,14 +93,11 @@ export const createFoodRecord = async (req, res) => {
     class: result.data.class + 1
   };
 
-<<<<<<< HEAD
   const predictionOutput = normalizePredictionOutput(result.data);
 
   // Log for debugging
   console.log(`[Ingest] ADC_raw=${payload.mq_135}, ADC_scaled=${mq135_scaled.toFixed(2)}, class=${result.data.class}, tvc=${result.data.tvc}`);
 
-=======
->>>>>>> parent of 0c17cef (feat: iot fix)
   const { data, error } = await supabase
     .from("kondisi_makanan")
     .insert(record)
