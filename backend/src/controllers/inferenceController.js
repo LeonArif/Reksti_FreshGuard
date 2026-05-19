@@ -31,43 +31,65 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const scriptPath = path.resolve(__dirname, "..", "..", "ai", "predict.py");
 
-export const runPython = (payload) =>
-  new Promise((resolve, reject) => {
-    const pythonCmd = process.env.PYTHON_PATH || "python";
-    const child = spawn(pythonCmd, [scriptPath], {
-      stdio: ["pipe", "pipe", "pipe"]
+export const runPython = async (payload) => {
+  const candidates = Array.from(new Set([
+    process.env.PYTHON_PATH,
+    process.env.PYTHON,
+    "python",
+    "python3",
+    "py"
+  ].filter(Boolean)));
+
+  let lastError = null;
+
+  for (const cmd of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    const attempt = await new Promise((resolve) => {
+      const child = spawn(cmd, [scriptPath], {
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on("error", (error) => {
+        return resolve({ ok: false, error });
+      });
+
+      child.on("close", (code) => {
+        if (code !== 0 && stderr) {
+          return resolve({ ok: false, error: new Error(stderr.trim()) });
+        }
+
+        try {
+          const parsed = JSON.parse(stdout);
+          return resolve({ ok: true, data: parsed });
+        } catch (error) {
+          return resolve({ ok: false, error });
+        }
+      });
+
+      child.stdin.write(JSON.stringify(payload));
+      child.stdin.end();
     });
 
-    let stdout = "";
-    let stderr = "";
+    if (attempt.ok) {
+      return attempt.data;
+    }
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
+    lastError = attempt.error instanceof Error ? attempt.error : new Error(String(attempt.error));
+  }
 
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", (error) => {
-      reject(error);
-    });
-
-    child.on("close", (code) => {
-      if (code !== 0 && stderr) {
-        return reject(new Error(stderr.trim()));
-      }
-      try {
-        const parsed = JSON.parse(stdout);
-        return resolve(parsed);
-      } catch (error) {
-        return reject(error);
-      }
-    });
-
-    child.stdin.write(JSON.stringify(payload));
-    child.stdin.end();
-  });
+  throw lastError ?? new Error("No python executable available");
+};
 
 export const runManualPrediction = async (req, res) => {
   const parseResult = inputSchema.safeParse(req.body);
@@ -113,70 +135,8 @@ export const runManualPrediction = async (req, res) => {
       class: record.class + 1
     };
 
-    let query = supabase.from("kondisi_makanan").select("*");
-    const applyFilter = (builder, column, value) => {
-      if (value === null || value === undefined) {
-        return builder.is(column, null);
-      }
-      return builder.eq(column, value);
-    };
-
-    query = applyFilter(query, "mq_135", record.mq_135);
-    query = applyFilter(query, "mq_136", record.mq_136);
-    query = applyFilter(query, "temperature", record.temperature);
-    query = applyFilter(query, "humidity", record.humidity);
-    query = applyFilter(query, "h2s", record.h2s);
-    query = applyFilter(query, "voc", record.voc);
-    query = applyFilter(query, "amonia", record.amonia);
-
-    const { data: existing, error: existingError } = await query.limit(1).maybeSingle();
-    if (existingError) {
-      return res.status(500).json({ error: existingError.message });
-    }
-
-    if (existing) {
-      const { data, error } = await supabase
-        .from("kondisi_makanan")
-        .update({
-          tvc: record.tvc,
-          rsl_minutes: record.rsl_minutes,
-          class: dbRecord.class
-        })
-        .eq("id", existing.id)
-        .select("*")
-        .single();
-
-      if (error) {
-        return res.status(500).json({ error: error.message });
-      }
-
-      const user = await resolveAuthenticatedUser(req).catch((resolveError) => {
-        console.error("Failed to resolve authenticated user", resolveError);
-        return null;
-      });
-
-      if (user?.id) {
-        try {
-          await savePredictionHistory({
-            userId: user.id,
-            source: "manual",
-            record: data,
-            prediction: predictionOutput
-          });
-        } catch (historyError) {
-          console.error("Failed to save manual prediction history", historyError);
-        }
-      }
-
-      return res.json({
-        data: {
-          ...data,
-          class_name: predictionOutput.class_name,
-          class_probabilities: predictionOutput.class_probabilities
-        }
-      });
-    }
-
+    // Always insert a new kondisi_makanan record so duplicates with identical sensor
+    // values are permitted. Prediction history is stored separately in `prediction_history`.
     const { data, error } = await supabase
       .from("kondisi_makanan")
       .insert(dbRecord)
