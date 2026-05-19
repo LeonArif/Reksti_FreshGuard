@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import MetricCard from "../components/MetricCard.jsx";
+import { useNavigate } from "react-router-dom";
 import PageShell from "../components/PageShell.jsx";
 import { supabase } from "../lib/supabaseClient.js";
 import { authedJson, getCurrentUser } from "../lib/predictionApi.js";
@@ -36,11 +35,73 @@ const formatTimeAgo = (value) => {
   return new Date(value).toLocaleString();
 };
 
+const sortByCreatedAt = (items) =>
+  [...items].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+const LineChart = ({ title, values, unit }) => {
+  const width = 640;
+  const height = 180;
+  const padding = 24;
+
+  if (!values.length) {
+    return (
+      <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+        <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">{title}</p>
+        <p className="mt-6 text-sm text-[var(--muted)]">Belum ada data historis.</p>
+      </div>
+    );
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  const points = values
+    .map((value, index) => {
+      const x = padding + (index / Math.max(values.length - 1, 1)) * (width - padding * 2);
+      const y = height - padding - ((value - min) / range) * (height - padding * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  const latest = values[values.length - 1];
+
+  return (
+    <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">{title}</p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--text-strong)]">
+            {formatNumber(latest)} {unit}
+          </p>
+        </div>
+        <div className="text-right text-xs text-[var(--muted)]">
+          <p>Min {formatNumber(min)}</p>
+          <p>Max {formatNumber(max)}</p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full">
+          <rect x="0" y="0" width={width} height={height} rx="18" fill="rgba(255,255,255,0.5)" />
+          <polyline
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            points={points}
+          />
+        </svg>
+      </div>
+    </div>
+  );
+};
+
 function DashboardPage() {
-  const location = useLocation();
   const navigate = useNavigate();
 
-  const [latestRecord, setLatestRecord] = useState(location.state?.latestPrediction ?? null);
+  const [historyItems, setHistoryItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [userEmail, setUserEmail] = useState("");
@@ -52,7 +113,7 @@ function DashboardPage() {
       try {
         const [user, response] = await Promise.all([
           getCurrentUser(),
-          authedJson("/api/predictions/latest")
+          authedJson("/api/predictions/history?limit=200")
         ]);
 
         if (!isMounted) {
@@ -60,7 +121,7 @@ function DashboardPage() {
         }
 
         setUserEmail(user?.email ?? "");
-        setLatestRecord((currentRecord) => currentRecord ?? response?.data ?? null);
+        setHistoryItems(response?.data ?? []);
       } catch (fetchError) {
         if (isMounted) {
           setError(fetchError.message);
@@ -77,27 +138,35 @@ function DashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, [location.state]);
+  }, []);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
   };
 
-  const freshnessLabel = latestRecord?.class_name ?? "No prediction yet";
+  const sortedHistory = useMemo(() => sortByCreatedAt(historyItems), [historyItems]);
+  const latestRecord = sortedHistory[sortedHistory.length - 1] ?? null;
   const lastUpdatedLabel = formatTimeAgo(latestRecord?.created_at);
 
-  const statusTone = useMemo(() => {
-    if (freshnessLabel === "Danger") return "bg-rose-50";
-    if (freshnessLabel === "Warning") return "bg-amber-50";
-    return "bg-emerald-50";
-  }, [freshnessLabel]);
+  const classCounts = useMemo(() => {
+    return sortedHistory.reduce(
+      (acc, item) => {
+        const key = item.class_name ?? "";
+        if (key === "Safe") acc.Safe += 1;
+        if (key === "Warning") acc.Warning += 1;
+        if (key === "Danger") acc.Danger += 1;
+        return acc;
+      },
+      { Safe: 0, Warning: 0, Danger: 0 }
+    );
+  }, [sortedHistory]);
 
-  const classProbabilities = latestRecord?.class_probabilities ?? {};
+  const maxClassCount = Math.max(classCounts.Safe, classCounts.Warning, classCounts.Danger, 1);
 
   return (
     <PageShell
       active="dashboard"
-      statusLabel="Latest prediction"
+      statusLabel="Historical overview"
       lastUpdatedLabel={lastUpdatedLabel}
       userEmail={userEmail}
       onSignOut={handleSignOut}
@@ -107,11 +176,11 @@ function DashboardPage() {
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Dashboard</p>
             <h1 className="mt-3 text-4xl font-semibold text-[var(--text-strong)]">
-              {loading ? "Loading dashboard..." : freshnessLabel}
+              {loading ? "Loading dashboard..." : "Historical analytics"}
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-              Dashboard menampilkan hasil prediksi terakhir milik akun yang sedang login.
-              Semua data di halaman ini berasal dari history user yang sama.
+              Dashboard menampilkan ringkasan historis dari seluruh prediction user yang sedang login.
+              Grafik di bawah mengambil data dari history yang sama.
             </p>
           </div>
 
@@ -135,45 +204,72 @@ function DashboardPage() {
 
         {error ? <p className="mt-4 text-sm text-rose-600">{error}</p> : null}
 
-        {!loading && !latestRecord ? (
+        {!loading && historyItems.length === 0 ? (
           <div className="mt-8 rounded-3xl border border-dashed border-[rgba(143,47,16,0.2)] bg-[var(--accent-soft)]/40 p-8 text-sm text-[var(--muted)]">
             Belum ada hasil prediksi untuk akun ini. Buka Predict untuk menjalankan prediksi pertama.
           </div>
         ) : null}
 
-        {latestRecord ? (
+        {historyItems.length > 0 ? (
           <>
-            <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              <MetricCard title="Temperature" value={formatNumber(latestRecord.temperature)} unit="°C" />
-              <MetricCard title="Humidity" value={formatNumber(latestRecord.humidity)} unit="%" />
-              <MetricCard title="RSL" value={formatNumber(latestRecord.rsl_minutes)} unit="minutes" />
-              <MetricCard title="MQ-135" value={formatNumber(latestRecord.mq_135)} unit="ADC" />
-              <MetricCard title="MQ-136" value={formatNumber(latestRecord.mq_136)} unit="ppm" />
-              <div className={`rounded-3xl p-6 shadow-soft ${statusTone}`}>
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Prediction class</p>
-                <h2 className="mt-4 text-4xl font-semibold text-[var(--accent-strong)]">{freshnessLabel}</h2>
-                <p className="mt-3 text-sm text-[var(--muted)]">Updated {lastUpdatedLabel}</p>
-              </div>
-            </div>
-
-            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div className="mt-8 grid gap-6">
               <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Sensor summary</p>
-                <div className="mt-4 space-y-3 text-sm text-[var(--text-strong)]">
-                  <p>MQ-135: {formatNumber(latestRecord.mq_135)}</p>
-                  <p>MQ-136: {formatNumber(latestRecord.mq_136)}</p>
-                  <p>Temperature: {formatNumber(latestRecord.temperature)} °C</p>
-                  <p>Humidity: {formatNumber(latestRecord.humidity)} %</p>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Class distribution</p>
+                    <h2 className="mt-2 text-2xl font-semibold text-[var(--text-strong)]">Total per class</h2>
+                  </div>
+                  <p className="text-xs text-[var(--muted)]">Updated {lastUpdatedLabel}</p>
+                </div>
+
+                <div className="mt-6 grid gap-4 md:grid-cols-3">
+                  {[
+                    { label: "Safe", value: classCounts.Safe, tone: "bg-emerald-300" },
+                    { label: "Warning", value: classCounts.Warning, tone: "bg-amber-300" },
+                    { label: "Danger", value: classCounts.Danger, tone: "bg-rose-300" }
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-2xl bg-white/70 p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-[var(--text-strong)]">{item.label}</p>
+                        <span className="text-sm text-[var(--muted)]">{item.value}</span>
+                      </div>
+                      <div className="mt-4 flex h-28 items-end rounded-xl bg-[var(--accent-soft)]/60">
+                        <div
+                          className={`w-full rounded-xl ${item.tone}`}
+                          style={{ height: `${Math.round((item.value / maxClassCount) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Probability</p>
-                <div className="mt-4 space-y-3 text-sm text-[var(--text-strong)]">
-                  <p>Safe: {classProbabilities.Safe === undefined ? "-" : `${(Number(classProbabilities.Safe) * 100).toFixed(2)}%`}</p>
-                  <p>Warning: {classProbabilities.Warning === undefined ? "-" : `${(Number(classProbabilities.Warning) * 100).toFixed(2)}%`}</p>
-                  <p>Danger: {classProbabilities.Danger === undefined ? "-" : `${(Number(classProbabilities.Danger) * 100).toFixed(2)}%`}</p>
-                </div>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <LineChart
+                  title="Temperature"
+                  values={sortedHistory.map((item) => Number(item.temperature))}
+                  unit="°C"
+                />
+                <LineChart
+                  title="Humidity"
+                  values={sortedHistory.map((item) => Number(item.humidity))}
+                  unit="%"
+                />
+                <LineChart
+                  title="RSL"
+                  values={sortedHistory.map((item) => Number(item.rsl_minutes))}
+                  unit="min"
+                />
+                <LineChart
+                  title="MQ-135"
+                  values={sortedHistory.map((item) => Number(item.mq_135))}
+                  unit="ADC"
+                />
+                <LineChart
+                  title="MQ-136"
+                  values={sortedHistory.map((item) => Number(item.mq_136))}
+                  unit="ppm"
+                />
               </div>
             </div>
           </>

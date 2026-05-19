@@ -96,7 +96,7 @@ export const createFoodRecord = async (req, res) => {
   const predictionOutput = normalizePredictionOutput(result.data);
 
   // Log for debugging
-  console.log(`[Ingest] ADC_raw=${payload.mq_135}, ADC_scaled=${mq135_scaled.toFixed(2)}, class=${result.data.class}, tvc=${result.data.tvc}`);
+  console.log(`[Ingest] ADC_raw=${payload.mq_135}, class=${result.data.class}, tvc=${result.data.tvc}`);
 
   const { data, error } = await supabase
     .from("kondisi_makanan")
@@ -110,10 +110,11 @@ export const createFoodRecord = async (req, res) => {
 
   let updatedRecord = data;
 
-  if (pendingPredictUser?.id) {
+  const historyUser = pendingPredictUser ?? (await resolveAuthenticatedUser(req).catch(() => null));
+  if (historyUser?.id) {
     try {
       await savePredictionHistory({
-        userId: pendingPredictUser.id,
+        userId: historyUser.id,
         source: "device",
         record: updatedRecord,
         prediction: predictionOutput
