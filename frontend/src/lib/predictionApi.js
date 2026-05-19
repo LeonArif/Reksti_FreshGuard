@@ -1,6 +1,11 @@
 import { supabase } from "./supabaseClient.js";
 
-export const apiBase = import.meta.env.VITE_API_BASE || "http://localhost:3001";
+const isLocalHost = typeof window !== "undefined"
+  && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+
+export const apiBase = isLocalHost
+  ? "http://localhost:3001"
+  : (import.meta.env.VITE_API_BASE || "http://localhost:3001");
 
 export const getCurrentUser = async () => {
   const { data } = await supabase.auth.getUser();
