@@ -1,13 +1,13 @@
 import PropTypes from "prop-types";
+import { Link } from "react-router-dom";
 
 const navItems = [
-  { label: "Dashboard", value: "dashboard" },
-  { label: "Sensors", value: "sensors" },
-  { label: "Device Logs", value: "logs" },
-  { label: "Settings", value: "settings" }
+  { label: "Predict", value: "predict", to: "/predict" },
+  { label: "Dashboard", value: "dashboard", to: "/dashboard" },
+  { label: "History", value: "history", to: "/history" }
 ];
 
-function Sidebar({ active, isOnline, lastUpdatedLabel }) {
+function Sidebar({ active }) {
   return (
     <aside className="hidden lg:flex lg:flex-col lg:gap-8 lg:py-10">
       <div className="flex items-center gap-3">
@@ -22,9 +22,9 @@ function Sidebar({ active, isOnline, lastUpdatedLabel }) {
 
       <nav className="flex flex-col gap-3">
         {navItems.map((item) => (
-          <button
+          <Link
             key={item.value}
-            type="button"
+            to={item.to}
             className={`rounded-full px-5 py-3 text-left text-sm font-semibold transition ${
               active === item.value
                 ? "bg-[var(--accent)] text-white shadow-glow"
@@ -32,31 +32,23 @@ function Sidebar({ active, isOnline, lastUpdatedLabel }) {
             }`}
           >
             {item.label}
-          </button>
+          </Link>
         ))}
       </nav>
 
       <div className="mt-auto rounded-2xl bg-white/70 p-4 text-xs text-[var(--muted)] shadow-soft">
-        <div className="mb-2 flex items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-rose-400"}`} />
-          {isOnline ? "ESP32 Online" : "ESP32 Offline"}
-        </div>
-        <p>Last update: {lastUpdatedLabel}</p>
+        <p>Prediction history is isolated per user account.</p>
       </div>
     </aside>
   );
 }
 
 Sidebar.propTypes = {
-  active: PropTypes.string,
-  isOnline: PropTypes.bool,
-  lastUpdatedLabel: PropTypes.string
+  active: PropTypes.string
 };
 
 Sidebar.defaultProps = {
-  active: "dashboard",
-  isOnline: false,
-  lastUpdatedLabel: "never"
+  active: "predict"
 };
 
 export default Sidebar;

@@ -3,6 +3,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import { supabase } from "../db/supabaseClient.js";
+import { resolveAuthenticatedUser } from "../lib/auth.js";
+import { savePredictionHistory } from "../lib/predictionStore.js";
 
 const optionalNumber = z.preprocess(
   (value) => (value === "" || value === null || value === undefined ? undefined : Number(value)),
@@ -17,6 +19,12 @@ const inputSchema = z.object({
   h2s: optionalNumber,
   voc: optionalNumber,
   amonia: optionalNumber
+});
+
+const normalizePredictionOutput = (resultData) => ({
+  class: resultData.class,
+  class_name: resultData.class_name ?? (resultData.class === 0 ? "Safe" : resultData.class === 1 ? "Warning" : "Danger"),
+  class_probabilities: resultData.class_probabilities ?? {}
 });
 
 const __filename = fileURLToPath(import.meta.url);
@@ -99,6 +107,7 @@ export const runManualPrediction = async (req, res) => {
       rsl_minutes: result.data.rsl_minutes,
       class: result.data.class
     };
+    const predictionOutput = normalizePredictionOutput(result.data);
     const dbRecord = {
       ...record,
       class: record.class + 1
@@ -141,11 +150,29 @@ export const runManualPrediction = async (req, res) => {
         return res.status(500).json({ error: error.message });
       }
 
+      const user = await resolveAuthenticatedUser(req).catch((resolveError) => {
+        console.error("Failed to resolve authenticated user", resolveError);
+        return null;
+      });
+
+      if (user?.id) {
+        try {
+          await savePredictionHistory({
+            userId: user.id,
+            source: "manual",
+            record: data,
+            prediction: predictionOutput
+          });
+        } catch (historyError) {
+          console.error("Failed to save manual prediction history", historyError);
+        }
+      }
+
       return res.json({
         data: {
           ...data,
-          class_name: result.data.class_name,
-          class_probabilities: result.data.class_probabilities
+          class_name: predictionOutput.class_name,
+          class_probabilities: predictionOutput.class_probabilities
         }
       });
     }
@@ -160,11 +187,29 @@ export const runManualPrediction = async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
+    const user = await resolveAuthenticatedUser(req).catch((resolveError) => {
+      console.error("Failed to resolve authenticated user", resolveError);
+      return null;
+    });
+
+    if (user?.id) {
+      try {
+        await savePredictionHistory({
+          userId: user.id,
+          source: "manual",
+          record: data,
+          prediction: predictionOutput
+        });
+      } catch (historyError) {
+        console.error("Failed to save manual prediction history", historyError);
+      }
+    }
+
     return res.json({
       data: {
         ...data,
-        class_name: result.data.class_name,
-        class_probabilities: result.data.class_probabilities
+        class_name: predictionOutput.class_name,
+        class_probabilities: predictionOutput.class_probabilities
       }
     });
   } catch (error) {

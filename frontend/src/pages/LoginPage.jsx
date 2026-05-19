@@ -13,7 +13,7 @@ function LoginPage() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/dashboard`,
+          redirectTo: `${window.location.origin}/predict`,
           skipBrowserRedirect: true
         }
       });
@@ -56,8 +56,8 @@ function LoginPage() {
               Welcome back.
             </h1>
             <p className="max-w-md text-sm text-[var(--muted)]">
-              Masuk dengan Google untuk mengakses dashboard monitoring dan manual
-              input sensor.
+              Masuk dengan Google untuk mengakses halaman Predict, melihat hasil di
+              Dashboard, dan membuka History milik akunmu.
             </p>
           </div>
 

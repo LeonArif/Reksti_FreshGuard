@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import foodRoutes from "./routes/foodRoutes.js";
+import predictionRoutes from "./routes/predictionRoutes.js";
 import { supabase } from "./db/supabaseClient.js";
 
 dotenv.config();
@@ -37,6 +38,7 @@ app.get("/health", async (_req, res) => {
 });
 
 app.use("/api/food", foodRoutes);
+app.use("/api/predictions", predictionRoutes);
 
 app.listen(port, () => {
   // eslint-disable-next-line no-console

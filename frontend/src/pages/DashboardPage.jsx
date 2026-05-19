@@ -1,170 +1,86 @@
 import { useEffect, useMemo, useState } from "react";
-import Sidebar from "../components/Sidebar.jsx";
-import TopBar from "../components/TopBar.jsx";
+import { useLocation, useNavigate } from "react-router-dom";
 import MetricCard from "../components/MetricCard.jsx";
-import PredictionForm from "../components/PredictionForm.jsx";
+import PageShell from "../components/PageShell.jsx";
 import { supabase } from "../lib/supabaseClient.js";
-
-const apiBase = import.meta.env.VITE_API_BASE || "http://localhost:3001";
-const ONLINE_THRESHOLD_SEC = 90;
-const POLL_INTERVAL_MS = 5000;
-const PREDICT_TIMEOUT_MS = 16000;
+import { authedJson, getCurrentUser } from "../lib/predictionApi.js";
 
 const formatNumber = (value, digits = 2) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return "-";
   }
+
   return Number(value).toFixed(digits);
 };
 
-const formatPercent = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return "-";
+const formatTimeAgo = (value) => {
+  if (!value) {
+    return "never";
   }
-  return `${(Number(value) * 100).toFixed(2)}%`;
-};
 
-const scaleMQ135ADC = (adc) => {
-  // Scale ADC (0-4095) to model training range (0-547)
-  return Math.max(0, Math.min(547, (adc / 4095) * 547));
+  const timestamp = new Date(value).getTime();
+  const deltaSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+
+  if (deltaSeconds < 60) {
+    return `${deltaSeconds}s ago`;
+  }
+
+  if (deltaSeconds < 3600) {
+    return `${Math.floor(deltaSeconds / 60)}m ago`;
+  }
+
+  return `${Math.floor(deltaSeconds / 3600)}h ago`;
 };
 
 function DashboardPage() {
-  const [foodRecord, setFoodRecord] = useState(null);
-  const [manualInput, setManualInput] = useState(null);
-  const [manualLoading, setManualLoading] = useState(false);
-  const [manualError, setManualError] = useState("");
-  const [requestingUpload, setRequestingUpload] = useState(false);
-  const [requestMessage, setRequestMessage] = useState("");
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const [latestRecord, setLatestRecord] = useState(location.state?.latestPrediction ?? null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [userEmail, setUserEmail] = useState("");
 
   useEffect(() => {
     let isMounted = true;
-    let intervalId = null;
 
-    const loadSamples = async () => {
+    const loadDashboard = async () => {
       try {
-        const response = await fetch(`${apiBase}/api/food?limit=1`);
-        const json = await response.json();
-        if (isMounted) {
-          setFoodRecord(json?.data?.[0] ?? null);
+        const [user, response] = await Promise.all([
+          getCurrentUser(),
+          authedJson("/api/predictions/latest")
+        ]);
+
+        if (!isMounted) {
+          return;
         }
-      } catch (error) {
-        console.error("Failed to load samples", error);
+
+        setUserEmail(user?.email ?? "");
+        setLatestRecord((currentRecord) => currentRecord ?? response?.data ?? null);
+      } catch (fetchError) {
+        if (isMounted) {
+          setError(fetchError.message);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
-    const loadUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (isMounted) {
-        setUserEmail(data?.user?.email ?? "");
-      }
-    };
-
-    loadSamples();
-    loadUser();
-
-    intervalId = window.setInterval(loadSamples, POLL_INTERVAL_MS);
+    loadDashboard();
 
     return () => {
       isMounted = false;
-      if (intervalId) {
-        window.clearInterval(intervalId);
-      }
     };
-  }, []);
-
-  const handleRequestUpload = async () => {
-    setRequestingUpload(true);
-    setRequestMessage("Menghubungi ESP32, tunggu sebentar...");
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), PREDICT_TIMEOUT_MS);
-
-      const response = await fetch(`${apiBase}/api/food/predict`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      const json = await response.json();
-
-      if (!response.ok) {
-        throw new Error(json.error || "Prediksi gagal");
-      }
-
-      if (json.success && json.data) {
-        setFoodRecord(json.data);
-        setRequestMessage("Prediksi berhasil!");
-      } else {
-        throw new Error("Data tidak valid dari server");
-      }
-    } catch (error) {
-      if (error.name === "AbortError") {
-        setRequestMessage("Timeout: ESP32 tidak merespons. Pastikan perangkat menyala.");
-      } else {
-        setRequestMessage(error.message);
-      }
-    } finally {
-      setRequestingUpload(false);
-    }
-  };
+  }, [location.state]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
   };
 
-  const handleManualSubmit = async (values) => {
-    setManualInput(values);
-    setManualLoading(true);
-    setManualError("");
-
-    try {
-      const toNumberOrNull = (value) => (value === "" || value === null || value === undefined ? null : Number(value));
-      const response = await fetch(`${apiBase}/api/food/manual`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          mq135: toNumberOrNull(values.mq135),
-          mq136: toNumberOrNull(values.mq136),
-          temperature: toNumberOrNull(values.temperature),
-          humidity: toNumberOrNull(values.humidity),
-          h2s: toNumberOrNull(values.h2s),
-          voc: toNumberOrNull(values.voc),
-            amonia: toNumberOrNull(values.amonia)
-        })
-      });
-
-      const json = await response.json();
-      if (!response.ok) {
-        throw new Error(json.error || "Prediction failed");
-      }
-      setFoodRecord(json.data ?? null);
-    } catch (error) {
-      setManualError(error.message);
-    } finally {
-      setManualLoading(false);
-    }
-  };
-
-  const classId = Number(foodRecord?.class ?? Number.NaN);
-  const freshnessLabel = foodRecord?.class_name ?? (classId === 0 ? "Safe" : classId === 1 ? "Warning" : classId === 2 ? "Danger" : "-");
-  const classProbabilities = foodRecord?.class_probabilities ?? null;
-  const dangerProbabilities = classProbabilities && freshnessLabel === "Danger";
-
-  const lastUpdatedAt = foodRecord?.created_at ? new Date(foodRecord.created_at) : null;
-  const lastUpdatedSec = lastUpdatedAt ? Math.max(0, Math.floor((Date.now() - lastUpdatedAt.getTime()) / 1000)) : null;
-  const lastUpdatedLabel = lastUpdatedSec === null
-    ? "never"
-    : lastUpdatedSec < 60
-      ? `${lastUpdatedSec}s ago`
-      : `${Math.floor(lastUpdatedSec / 60)}m ago`;
-  const isOnline = lastUpdatedSec !== null && lastUpdatedSec <= ONLINE_THRESHOLD_SEC;
-  const statusLabel = isOnline ? "ESP32 online" : "ESP32 offline";
+  const freshnessLabel = latestRecord?.class_name ?? "No prediction yet";
+  const lastUpdatedLabel = formatTimeAgo(latestRecord?.created_at);
 
   const statusTone = useMemo(() => {
     if (freshnessLabel === "Danger") return "bg-rose-50";
@@ -172,111 +88,94 @@ function DashboardPage() {
     return "bg-emerald-50";
   }, [freshnessLabel]);
 
+  const classProbabilities = latestRecord?.class_probabilities ?? {};
+
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
-      <div className="mx-auto grid max-w-6xl gap-8 px-6 py-8 lg:grid-cols-[240px,1fr]">
-        <Sidebar
-          active="dashboard"
-          isOnline={isOnline}
-          lastUpdatedLabel={lastUpdatedLabel}
-        />
-
-        <div className="flex flex-col gap-6">
-          <TopBar
-            statusLabel={statusLabel}
-            lastUpdatedLabel={lastUpdatedLabel}
-            userEmail={userEmail}
-            onSignOut={handleSignOut}
-          />
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleRequestUpload}
-              disabled={requestingUpload}
-              className="rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-glow transition hover:translate-y-[-1px] disabled:opacity-60"
-            >
-              {requestingUpload ? "Predicting..." : "Predict"}
-            </button>
-            {requestMessage ? (
-              <span className="text-xs text-[var(--muted)]">{requestMessage}</span>
-            ) : null}
+    <PageShell
+      active="dashboard"
+      statusLabel="Latest prediction"
+      lastUpdatedLabel={lastUpdatedLabel}
+      userEmail={userEmail}
+      onSignOut={handleSignOut}
+    >
+      <div className="rounded-[32px] bg-white/90 p-8 shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Dashboard</p>
+            <h1 className="mt-3 text-4xl font-semibold text-[var(--text-strong)]">
+              {loading ? "Loading dashboard..." : freshnessLabel}
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--muted)]">
+              Dashboard menampilkan hasil prediksi terakhir milik akun yang sedang login.
+              Semua data di halaman ini berasal dari history user yang sama.
+            </p>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="grid gap-6 lg:col-span-2">
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => navigate("/predict")}
+              className="rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-glow transition hover:translate-y-[-1px]"
+            >
+              Run Predict
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/history")}
+              className="rounded-full border border-[rgba(143,47,16,0.15)] bg-white px-6 py-3 text-sm font-semibold text-[var(--text-strong)] transition hover:bg-[var(--accent-soft)]"
+            >
+              Open History
+            </button>
+          </div>
+        </div>
+
+        {error ? <p className="mt-4 text-sm text-rose-600">{error}</p> : null}
+
+        {!loading && !latestRecord ? (
+          <div className="mt-8 rounded-3xl border border-dashed border-[rgba(143,47,16,0.2)] bg-[var(--accent-soft)]/40 p-8 text-sm text-[var(--muted)]">
+            Belum ada hasil prediksi untuk akun ini. Buka Predict untuk menjalankan prediksi pertama.
+          </div>
+        ) : null}
+
+        {latestRecord ? (
+          <>
+            <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+              <MetricCard title="Temperature" value={formatNumber(latestRecord.temperature)} unit="°C" />
+              <MetricCard title="Humidity" value={formatNumber(latestRecord.humidity)} unit="%" />
+              <MetricCard title="RSL" value={formatNumber(latestRecord.rsl_minutes)} unit="minutes" />
+              <MetricCard title="MQ-135" value={formatNumber(latestRecord.mq_135)} unit="ADC" />
+              <MetricCard title="MQ-136" value={formatNumber(latestRecord.mq_136)} unit="ppm" />
               <div className={`rounded-3xl p-6 shadow-soft ${statusTone}`}>
-                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Current food status</p>
-                <p className="mt-2 text-sm text-[var(--text-strong)]">Main storage unit</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Prediction class</p>
                 <h2 className="mt-4 text-4xl font-semibold text-[var(--accent-strong)]">{freshnessLabel}</h2>
-                <p className="mt-4 text-sm text-[var(--muted)]">
-                  Kualitas makanan berdasarkan pembacaan sensor dan prediksi class terbaru.
-                </p>
-                <div className="mt-6 flex flex-wrap items-center gap-6">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Class</p>
-                    <p className="text-xl font-semibold text-[var(--text-strong)]">
-                        {freshnessLabel}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">RSL minutes</p>
-                    <p className="text-xl font-semibold text-[var(--text-strong)]">
-                      {formatNumber(foodRecord?.rsl_minutes)}
-                    </p>
-                  </div>
+                <p className="mt-3 text-sm text-[var(--muted)]">Updated {lastUpdatedLabel}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Sensor summary</p>
+                <div className="mt-4 space-y-3 text-sm text-[var(--text-strong)]">
+                  <p>MQ-135: {formatNumber(latestRecord.mq_135)}</p>
+                  <p>MQ-136: {formatNumber(latestRecord.mq_136)}</p>
+                  <p>Temperature: {formatNumber(latestRecord.temperature)} °C</p>
+                  <p>Humidity: {formatNumber(latestRecord.humidity)} %</p>
+                </div>
+              </div>
+
+              <div className="rounded-3xl bg-[var(--surface)] p-6 shadow-soft">
+                <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Probability</p>
+                <div className="mt-4 space-y-3 text-sm text-[var(--text-strong)]">
+                  <p>Safe: {classProbabilities.Safe === undefined ? "-" : `${(Number(classProbabilities.Safe) * 100).toFixed(2)}%`}</p>
+                  <p>Warning: {classProbabilities.Warning === undefined ? "-" : `${(Number(classProbabilities.Warning) * 100).toFixed(2)}%`}</p>
+                  <p>Danger: {classProbabilities.Danger === undefined ? "-" : `${(Number(classProbabilities.Danger) * 100).toFixed(2)}%`}</p>
                 </div>
               </div>
             </div>
-          </div>
-
-            <div className="grid gap-6 md:grid-cols-2">
-            <MetricCard
-                title="Temperature"
-                value={formatNumber(foodRecord?.temperature)}
-                unit="C"
-            />
-            <MetricCard
-                title="Humidity"
-                value={formatNumber(foodRecord?.humidity)}
-                unit="%"
-            />
-          </div>
-
-            <div className="grid gap-6 md:grid-cols-2">
-              <MetricCard
-                title="MQ-135 (Scaled)"
-                value={formatNumber(scaleMQ135ADC(foodRecord?.mq_135 ?? 0), 1)}
-                unit="sensor range"
-                subtitle="ADC value"
-              />
-              <MetricCard
-                title="MQ-136"
-                value={formatNumber(foodRecord?.mq_136)}
-                unit="ppm"
-              />
-            </div>
-
-          <PredictionForm
-            onSubmit={handleManualSubmit}
-            isLoading={manualLoading}
-            errorMessage={manualError}
-          />
-
-          {manualInput ? (
-            <div className="rounded-3xl bg-white/80 p-6 text-sm text-[var(--muted)] shadow-soft">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">Last input</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <span>MQ-135: {manualInput.mq135 || "-"}</span>
-                <span>MQ-136: {manualInput.mq136 || "-"}</span>
-                <span>Temperature: {manualInput.temperature || "-"}</span>
-                <span>Humidity: {manualInput.humidity || "-"}</span>
-              </div>
-            </div>
-          ) : null}
-        </div>
+          </>
+        ) : null}
       </div>
-    </div>
+    </PageShell>
   );
 }
 

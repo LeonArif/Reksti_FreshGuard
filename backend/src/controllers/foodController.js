@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { supabase } from "../db/supabaseClient.js";
+import { resolveAuthenticatedUser } from "../lib/auth.js";
+import { savePredictionHistory } from "../lib/predictionStore.js";
 import { runPython } from "./inferenceController.js";
 
 let uploadRequestedAt = null;
 let pendingPredictResolve = null;
 let pendingPredictTimer   = null;
+let pendingPredictUser = null;
 
 const optionalNumber = z.preprocess(
   (value) => (value === "" || value === null || value === undefined ? null : Number(value)),
@@ -43,6 +46,12 @@ const normalizeFoodRecord = (record) => {
     class: record.class === null || record.class === undefined ? record.class : Number(record.class) - 1
   };
 };
+
+const normalizePredictionOutput = (resultData) => ({
+  class: resultData.class,
+  class_name: resultData.class_name ?? (resultData.class === 0 ? "Safe" : resultData.class === 1 ? "Warning" : "Danger"),
+  class_probabilities: resultData.class_probabilities ?? {}
+});
 
 export const listFoodRecords = async (req, res) => {
   const limit = Number(req.query.limit ?? 50);
@@ -99,6 +108,8 @@ export const createFoodRecord = async (req, res) => {
     class: result.data.class + 1
   };
 
+  const predictionOutput = normalizePredictionOutput(result.data);
+
   // Log for debugging
   console.log(`[Ingest] ADC_raw=${payload.mq_135}, ADC_scaled=${mq135_scaled.toFixed(2)}, class=${result.data.class}, tvc=${result.data.tvc}`);
 
@@ -114,12 +125,26 @@ export const createFoodRecord = async (req, res) => {
 
   let updatedRecord = data;
 
+  if (pendingPredictUser?.id) {
+    try {
+      await savePredictionHistory({
+        userId: pendingPredictUser.id,
+        source: "device",
+        record: updatedRecord,
+        prediction: predictionOutput
+      });
+    } catch (historyError) {
+      console.error("Failed to save prediction history", historyError);
+    }
+  }
+
   // Resolve any frontend long-poll waiting for this result
   if (pendingPredictResolve) {
     const resolve = pendingPredictResolve;
     pendingPredictResolve = null;
     clearTimeout(pendingPredictTimer);
     pendingPredictTimer = null;
+    pendingPredictUser = null;
     resolve(normalizeFoodRecord(updatedRecord));
   }
 
@@ -135,6 +160,11 @@ export const requestDeviceUpload = async (_req, res) => {
 // Sets upload flag then long-polls up to 15 s for ESP32 to deliver sensor data.
 // Returns the complete prediction record once received, or 504 on timeout.
 export const predictWithDevice = async (_req, res) => {
+  const user = await resolveAuthenticatedUser(_req).catch((error) => {
+    console.error("Failed to resolve authenticated user", error);
+    return null;
+  });
+
   // Cancel any previous pending request
   if (pendingPredictTimer) {
     clearTimeout(pendingPredictTimer);
@@ -144,14 +174,17 @@ export const predictWithDevice = async (_req, res) => {
     pendingPredictResolve(null);
     pendingPredictResolve = null;
   }
+  pendingPredictUser = null;
 
   uploadRequestedAt = new Date();
 
   const record = await new Promise((resolve) => {
+    pendingPredictUser = user;
     pendingPredictResolve = resolve;
     pendingPredictTimer = setTimeout(() => {
       pendingPredictResolve = null;
       pendingPredictTimer   = null;
+      pendingPredictUser = null;
       resolve(null);
     }, 15000);
   });
